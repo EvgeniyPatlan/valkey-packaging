@@ -1,0 +1,14 @@
+# Migrating data and configuration from Redis to Valkey
+
+  Valkey is a replacement for Redis, and version 7.2.x, is fully compatible.
+  The valkey-redis-compat package will attempt a automatic configuration and data
+  migration from Redis to Valkey. If you did not perform any drastic change to
+  the configuration of your Redis service, it should work straight away.
+  However, if you performed some substantial changes, the automation may not
+  work. Due to that, whenever the valkey-redis-compat package is installed and
+  the migration is attempted, the file /etc/valkey/REDIS_MIGRATION will be
+  created, and the services will not start automatically. This will avoid
+  breaking the upgrade due to an incomplete migration. After the user has
+  checked if the migration is OK, they need to remove the
+  /etc/valkey/REDIS_MIGRATION file, then the services will be able to be
+  started again.

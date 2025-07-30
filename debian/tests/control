@@ -1,0 +1,23 @@
+Tests: 0001-valkey-cli
+Depends: valkey-server
+Restrictions: needs-root
+
+Tests: 0002-benchmark
+Depends: valkey-server
+Restrictions: needs-root
+
+Tests: 0003-valkey-check-aof
+Depends: valkey-server
+Restrictions: needs-root
+
+Tests: 0004-valkey-check-rdb
+Depends: valkey-server
+Restrictions: needs-root
+
+Tests: 0005-cjson
+Depends: valkey-server
+Restrictions: needs-root
+
+Tests: 0006-migrate-from-redis
+Depends: redis-server, redis-sentinel
+Restrictions: needs-root, allow-stderr

@@ -233,6 +233,9 @@ build_srpm(){
     cp -av rpm/valkey.spec rpmbuild/SPECS
     #
     mv -fv "${TARFILE}" "${WORKDIR}"/rpmbuild/SOURCES
+    cd "${WORKDIR}"/rpmbuild/SOURCES
+    wget https://github.com/valkey-io/valkey-doc/archive/refs/tags/8.0.3.tar.gz
+    cd -
     sed -i 's:.rhel7:%{dist}:' ${WORKDIR}/rpmbuild/SPECS/valkey.spec
     rpmbuild -bs --define "_topdir ${WORKDIR}/rpmbuild" --define "dist .generic" \
         --define "version ${VERSION}" rpmbuild/SPECS/valkey.spec

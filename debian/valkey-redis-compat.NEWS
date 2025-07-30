@@ -1,0 +1,10 @@
+valkey (7.2.5+dfsg1-2ubuntu1) oracular; urgency=medium
+
+  Please, after valkey-redis-compat package is installed, check the
+  configuration files in /etc/valkey and the data in /var/lib/valkey, and make
+  sure they are in a correct state. If everything looks good, remove the
+  /etc/valkey/REDIS_MIGRATION file, and then you are able to start the services
+  normally. Not starting the services by default after migration from Redis
+  will avoid any possible breakage during the upgrade.
+
+ -- Lucas Kanashiro <kanashiro@ubuntu.com>  Sat, 10 Aug 2024 19:21:26 -0300

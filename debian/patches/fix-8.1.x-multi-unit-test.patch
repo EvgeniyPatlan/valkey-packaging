@@ -1,0 +1,20 @@
+From 02d7ee08489fe34f853ffccce9057dea6f03d957 Mon Sep 17 00:00:00 2001
+From: Harkrishn Patro <harkrisp@amazon.com>
+Date: Mon, 7 Jul 2025 23:12:57 -0700
+Subject: [PATCH] Update test to unwatch all keys before auth within multi
+ (#2323) (#2324)
+
+---
+ tests/unit/multi.tcl | 1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/tests/unit/multi.tcl
++++ b/tests/unit/multi.tcl
+@@ -900,6 +900,7 @@
+         r watch b{t} a{t}
+         r flushall
+         r ping
++        r unwatch
+      }
+ 
+     test "AUTH errored inside MULTI will add the reply" {

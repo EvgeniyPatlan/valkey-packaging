@@ -1,0 +1,48 @@
+#!/bin/bash
+
+set -eux
+
+# This test starts with redis-server installed, our goal is to check whether
+# the migration worked as expected after installing valkey-redis-compat package.
+
+FLAG_FILE=/etc/valkey/REDIS_MIGRATION
+
+# Change redis config file to update loglevel to debug
+sed -i 's#loglevel notice#loglevel debug#' /etc/redis/redis.conf
+systemctl restart redis-server
+
+# Store a key called 'test' and assign value 1 using redis-cli
+redis-cli -h 127.0.0.1 -p 6379 SET test 1
+redis-cli -h 127.0.0.1 -p 6379 GET test
+
+# Force writting DB to the disk
+redis-cli -h 127.0.0.1 -p 6379 SAVE
+
+# Checksum of redis RDB file
+sha256sum /var/lib/redis/dump.rdb
+
+# Install the compat package
+apt-get install -y valkey-redis-compat
+
+# Check if the flag file exists
+[ -f "$FLAG_FILE" ]
+
+# Checksum of migrated RDB file
+sha256sum /var/lib/valkey/dump.rdb
+
+# Check if the service is not running
+systemctl status valkey-server | grep inactive
+
+# Remove the flag file and try to start the service
+rm "$FLAG_FILE"
+systemctl start valkey-server
+systemctl status valkey-server | grep running
+
+# Checksum of migrated RDB file after valkey-server start
+sha256sum /var/lib/valkey/dump.rdb
+
+# Check if the change applied to redis conf is still present in valkey conf
+cat /etc/valkey/valkey.conf | grep loglevel | grep debug
+
+# Check if the key 'test' with value 1 is migrated to valkey
+valkey-cli -h 127.0.0.1 -p 6379 GET test | grep 1

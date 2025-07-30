@@ -1,0 +1,66 @@
+#!/bin/sh
+
+set -e
+
+migrate_redis_conf(){
+	if [ -f /etc/redis/redis.conf ]; then
+		if [ -f /etc/valkey/valkey.conf ]; then
+			mv /etc/valkey/valkey.conf /etc/valkey/valkey.conf.bkp
+		fi
+		cp /etc/redis/redis.conf /etc/valkey/valkey.conf
+		chown valkey:valkey /etc/valkey/valkey.conf
+		sed -i 's#redis#valkey#g' /etc/valkey/valkey.conf
+		echo "[I] /etc/redis/redis.conf has been copied to /etc/valkey/valkey.conf. Please, review the content of valkey.conf, especially if you had modified redis.conf."
+	fi
+}
+
+migrate_sentinel_conf(){
+	if [ -f /etc/redis/sentinel.conf ]; then
+		if [ -f /etc/valkey/sentinel.conf ]; then
+			mv /etc/valkey/sentinel.conf /etc/valkey/sentinel.conf.bkp
+		fi
+		cp /etc/redis/sentinel.conf /etc/valkey/sentinel.conf
+		chown valkey:valkey /etc/valkey/sentinel.conf
+		echo "[I] /etc/redis/sentinel.conf has been copied to /etc/valkey/sentinel.conf. Please, review the content of sentinel.conf, especially if you had modified sentinel.conf."
+	fi
+}
+
+migrate_on_disk_dump_data(){
+	if [ -d /var/lib/redis ]; then
+		cp -a /var/lib/redis/* /var/lib/valkey/
+		mv /var/lib/redis /var/lib/redis-old
+		chown -R valkey:valkey /var/lib/valkey
+		echo "[I] On-disk redis dumps moved from /var/lib/redis/ to /var/lib/valkey."
+	fi
+}
+
+if [ "$1" = "configure" ]; then
+    if [ -d /var/lib/redis ]; then
+        # Stop daemons
+        deb-systemd-invoke stop valkey-server
+        if dpkg -l valkey-sentinel >/dev/null; then
+            deb-systemd-invoke stop valkey-sentinel
+        fi
+
+        if ! migrate_redis_conf; then
+            echo "[E] The migration of redis.conf failed. Please, make sure that /etc/redis/redis.conf is available."
+        fi
+        if ! migrate_sentinel_conf; then
+            echo "[E] The migration of sentinel.conf failed. Please, make sure that /etc/redis/sentinel.conf is available."
+        fi
+        if ! migrate_on_disk_dump_data; then
+            echo "[E] The migration of on-disk redis dump data failed. Please, make sure that /var/lib/redis directory is available."
+        fi
+
+        # Create a flag file to announce the the migration from Redis happened.
+        # The systemd services will not start and the user will need to manually check the migration and
+        # start the services by themselves.
+        touch /etc/valkey/REDIS_MIGRATION
+    else
+        echo "[I] No Redis configuration files detected. Skipping the migration process."
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

@@ -1,27 +1,74 @@
 Source: valkey
 Section: database
 Priority: optional
-Maintainer: Evgeniy Patlan <evgeniy.patlan@percona.com>
-Build-Depends: debhelper (>= 9), make, gcc, pkg-config, libsystemd-dev, openssl
-Standards-Version: 4.1.4
+Maintainer: Maintainer: Evgeniy Patlan <evgeniy.patlan@percona.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ libhiredis-dev,
+ libjemalloc-dev [linux-any],
+ liblua5.1-dev,
+ liblzf-dev,
+ libssl-dev,
+ libsystemd-dev,
+ lua-bitop-dev,
+ lua-cjson-dev,
+ openssl <!nocheck>,
+ pkgconf,
+ procps <!nocheck>,
+ tcl <!nocheck>,
+ tcl-tls <!nocheck>,
+Standards-Version: 4.7.2
 Homepage: https://valkey.io
 
-Package: valkey
-Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, logrotate
-Conflicts: redis
-Description: A persistent key-value database
- Valkey is an advanced key-value store described as a data structure server.
+Package: valkey-redis-compat
+Architecture: all
+Depends: valkey-server
+Conflicts: redis-server, redis-tools, redis-sentinel
+Replaces: redis-server, redis-tools, redis-sentinel
+Description: Conversion script and compatibility symlinks for Redis
+ Automation of the migration of data and configuration from Redis to Valkey.
+ This package should work with valkey 7.2.x and MAY work with 8.x.
 
-Package: valkey-devel
+Package: valkey-server
+Provides: valkey
 Architecture: any
-Depends: valkey (= ${binary:Version}), ${misc:Depends}
-Description: Development header for Valkey module development
- Header file required for building loadable Valkey modules.
+Pre-Depends:
+ ${misc:Pre-Depends},
+Depends:
+ valkey-tools (= ${binary:Version}),
+ ${misc:Depends},
+Description: Persistent key-value database with network interface
+ Valkey is a key-value database in a similar vein to memcache but the dataset
+ is non-volatile. Valkey additionally provides native support for atomically
+ manipulating and querying data structures such as lists and sets.
+ .
+ The dataset is stored entirely in memory and periodically flushed to disk.
 
-Package: valkey-compat
+Package: valkey-sentinel
 Architecture: any
-Depends: valkey (= ${binary:Version}), ${misc:Depends}
-Description: Config conversion scripts from redis to valkey
- Provides scripts to convert configurations from Redis to Valkey.
+Pre-Depends:
+ ${misc:Pre-Depends},
+Depends:
+ valkey-tools (= ${binary:Version}),
+ ${misc:Depends},
+Description: Persistent key-value database with network interface (monitoring)
+ Valkey is a key-value database in a similar vein to memcache but the dataset
+ is non-volatile. Valkey additionally provides native support for atomically
+ manipulating and querying data structures such as lists and sets.
+ .
+ This package contains the Valkey Sentinel monitoring software.
 
+Package: valkey-tools
+Architecture: any
+Depends:
+ adduser,
+ ${misc:Depends},
+ ${shlibs:Depends},
+Suggests:
+ ruby-redis,
+Description: Persistent key-value database with network interface (client)
+ Valkey is a key-value database in a similar vein to memcache but the dataset
+ is non-volatile. Valkey additionally provides native support for atomically
+ manipulating and querying data structures such as lists and sets.
+ .
+ This package contains the command line client and other tools.
