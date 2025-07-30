@@ -9,7 +9,7 @@ Last-Update: 28-04-2025
  2 files changed, 9 insertions(+), 9 deletions(-)
 
 diff --git a/sentinel.conf b/sentinel.conf
-index 4c98a09..e8a5d84 100644
+index 4c98a09..e8a5d84 100644.
 --- a/sentinel.conf
 +++ b/sentinel.conf
 @@ -12,12 +12,12 @@ port 26379
@@ -85,12 +85,13 @@ index df12b72..ad8edd0 100644
  
  # To enable logging to the system logger, just set 'syslog-enabled' to yes,
  # and optionally update the other syslog parameters to suit your needs.
-@@ -606,7 +606,7 @@ rdb-del-sync-files no
- # Note that modifying 'dir' during runtime may have unexpected behavior,
- # for example when a child process is running, related file operations may
- # have unexpected effects.
--dir ./
-+dir /var/lib/valkey
+@@ -526,7 +526,7 @@
+ # 'cluster-config-file' configuration directive is a relative path.
+ #
+ # Note that you must specify a directory here, not a file name.
+-dir /var/lib/valkey
++dir ./
  
  ################################# REPLICATION #################################
+ 
  
