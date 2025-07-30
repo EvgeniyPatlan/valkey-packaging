@@ -198,7 +198,6 @@ get_deb_sources(){
         if [ -z $FILE ]
         then
             echo "There is no sources for build"
-            exit 1
         else
             cp $CURDIR/source_deb/$FILE $WORKDIR/
         fi
