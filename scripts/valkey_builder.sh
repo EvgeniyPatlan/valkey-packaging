@@ -104,6 +104,9 @@ get_sources(){
     REVISION=$(git rev-parse --short HEAD)
     echo "REVISION=${REVISION}" >> ${WORKDIR}/valkey.properties
     git clone https://github.com/EvgeniyPatlan/valkey-packaging.git packaging
+    cd packaging
+    git checkout 8.0.4
+    cd ../
     if [ ! -z "$BRANCH" ]
     then
         git reset --hard
