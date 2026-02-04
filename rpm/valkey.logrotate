@@ -1,9 +1,10 @@
 /var/log/valkey/*.log {
-    weekly
-    rotate 10
-    copytruncate
-    delaycompress
-    compress
-    notifempty
-    missingok
+       weekly
+       rotate 10
+       copytruncate
+       delaycompress
+       compress
+       notifempty
+       missingok
+       su valkey valkey
 }
