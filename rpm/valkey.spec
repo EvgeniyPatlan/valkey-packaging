@@ -43,7 +43,7 @@
     BUILD_TLS=yes
 
 Name:           valkey
-Version:        9.0.1
+Version:        9.0.2
 Release:        1.1%{?dist}
 Summary:        Persistent key-value database
 
