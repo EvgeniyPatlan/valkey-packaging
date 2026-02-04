@@ -1,0 +1,39 @@
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "archMap": [
+    {
+      "architecture": "SCMP_ARCH_X86_64",
+      "subArchitectures": ["SCMP_ARCH_X86", "SCMP_ARCH_X32"]
+    },
+    {
+      "architecture": "SCMP_ARCH_AARCH64",
+      "subArchitectures": ["SCMP_ARCH_ARM"]
+    }
+  ],
+  "syscalls": [
+    {
+      "names": [
+        "accept", "accept4", "access", "arch_prctl", "bind", "brk",
+        "chmod", "chown", "clock_gettime", "clone", "close", "connect",
+        "dup", "dup2", "epoll_create", "epoll_create1", "epoll_ctl",
+        "epoll_wait", "execve", "exit", "exit_group", "fchmod",
+        "fchown", "fcntl", "fdatasync", "flock", "fork", "fstat",
+        "fsync", "futex", "getcwd", "getdents", "getdents64",
+        "getegid", "geteuid", "getgid", "getpid", "getppid",
+        "getrlimit", "getsockname", "getsockopt", "gettid",
+        "gettimeofday", "getuid", "ioctl", "kill", "listen",
+        "lseek", "lstat", "madvise", "mkdir", "mmap", "mprotect",
+        "mremap", "munmap", "nanosleep", "open", "openat", "pipe",
+        "pipe2", "poll", "prctl", "pread64", "prlimit64", "pwrite64",
+        "read", "readlink", "recvfrom", "recvmsg", "rename",
+        "rt_sigaction", "rt_sigprocmask", "rt_sigreturn",
+        "sched_getaffinity", "sched_yield", "select", "sendmsg",
+        "sendto", "set_robust_list", "set_tid_address", "setgid",
+        "setgroups", "setrlimit", "setsockopt", "setuid", "shutdown",
+        "sigaltstack", "socket", "stat", "statfs", "sysinfo", "time",
+        "uname", "unlink", "wait4", "write"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ]
+}

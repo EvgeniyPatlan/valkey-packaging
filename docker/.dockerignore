@@ -1,0 +1,14 @@
+.git
+.github
+*.md
+LICENSE
+.gitignore
+docker-compose.yml
+Makefile
+*.tar.gz
+*.log
+data/
+*.swp
+*.swo
+*~
+.DS_Store

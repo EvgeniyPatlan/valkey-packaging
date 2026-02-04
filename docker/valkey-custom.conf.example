@@ -1,0 +1,78 @@
+# valkey-custom.conf.example
+# 
+# This is an EXAMPLE of security hardening options you can add to Valkey.
+# Copy this to valkey.conf and uncomment/modify as needed.
+# Then mount it in docker-compose.yml to override package defaults.
+#
+# Usage:
+#   1. cp valkey-custom.conf.example valkey.conf
+#   2. Edit valkey.conf with your settings
+#   3. Uncomment the volume mount in docker-compose.yml
+#   4. Uncomment the command line in docker-compose.yml
+
+# ============================================================================
+# SECURITY SETTINGS
+# ============================================================================
+
+# Require password authentication
+# requirepass YOUR_STRONG_PASSWORD_HERE
+
+# Rename or disable dangerous commands (recommended for production)
+# rename-command FLUSHDB ""
+# rename-command FLUSHALL ""
+# rename-command CONFIG b840fc02d524045429941cc15f59e41cb7be6c52
+# rename-command SHUTDOWN b840fc02d524045429941cc15f59e41cb7be6c53
+# rename-command DEBUG ""
+# rename-command EVAL ""
+# rename-command SCRIPT ""
+
+# Network binding (default: bind to all interfaces)
+# For security, bind only to localhost or specific IPs
+# bind 127.0.0.1 ::1
+
+# Protected mode (enabled by default in package)
+# protected-mode yes
+
+# ============================================================================
+# PERSISTENCE SETTINGS
+# ============================================================================
+
+# Data directory (already configured in package)
+# dir /data
+
+# RDB persistence
+# save 900 1
+# save 300 10
+# save 60 10000
+
+# AOF persistence (append-only file)
+# appendonly yes
+# appendfsync everysec
+
+# ============================================================================
+# MEMORY MANAGEMENT
+# ============================================================================
+
+# Max memory limit
+# maxmemory 512mb
+# maxmemory-policy allkeys-lru
+
+# ============================================================================
+# PERFORMANCE TUNING
+# ============================================================================
+
+# Max clients
+# maxclients 10000
+
+# TCP backlog
+# tcp-backlog 511
+
+# ============================================================================
+# LOGGING
+# ============================================================================
+
+# Log level: debug, verbose, notice, warning
+# loglevel notice
+
+# Log file location
+# logfile ""
