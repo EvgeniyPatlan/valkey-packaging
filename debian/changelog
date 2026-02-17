@@ -1,4 +1,4 @@
-valkey (9.0.2-1) unstable; urgency=medium
+percona-valkey (9.0.2-1) unstable; urgency=medium
 
   * Initial build
 

@@ -1,4 +1,4 @@
-Source: valkey
+Source: percona-valkey
 Section: database
 Priority: optional
 Maintainer: Evgeniy Patlan <evgeniy.patlan@percona.com>
@@ -25,21 +25,23 @@ Standards-Version: 4.7.2
 Homepage: https://valkey.io
 Rules-Requires-Root: no
 
-Package: valkey-server
-Provides: valkey
+Package: percona-valkey-server
+Provides: valkey, valkey-server
+Replaces: valkey-server
+Conflicts: valkey-server
 Architecture: any
 Pre-Depends:
  ${misc:Pre-Depends}
 Depends:
- valkey-tools (= ${binary:Version}),
+ percona-valkey-tools (= ${binary:Version}),
  lsb-base (>= 3.2-14),
  ${misc:Depends},
  ${shlibs:Depends}
 Recommends:
  logrotate
 Suggests:
- valkey-doc,
- valkey-compat-redis
+ percona-valkey-doc,
+ percona-valkey-compat-redis
 Description: Persistent key-value database with network interface
  Valkey is an advanced key-value store. It is often referred to as a data
  structure server since keys can contain strings, hashes, lists, sets and
@@ -63,12 +65,15 @@ Description: Persistent key-value database with network interface
  limited time-to-live, and configuration settings to make Valkey behave like
  a cache.
 
-Package: valkey-sentinel
+Package: percona-valkey-sentinel
+Provides: valkey-sentinel
+Replaces: valkey-sentinel
+Conflicts: valkey-sentinel
 Architecture: any
 Pre-Depends:
  ${misc:Pre-Depends}
 Depends:
- valkey-tools (= ${binary:Version}),
+ percona-valkey-tools (= ${binary:Version}),
  lsb-base (>= 3.2-14),
  ${misc:Depends},
  ${shlibs:Depends}
@@ -79,7 +84,10 @@ Description: Persistent key-value database with network interface (monitoring)
  .
  This package contains the Valkey Sentinel monitoring software.
 
-Package: valkey-tools
+Package: percona-valkey-tools
+Provides: valkey-tools
+Replaces: valkey-tools
+Conflicts: valkey-tools
 Architecture: any
 Depends:
  adduser,
@@ -92,7 +100,10 @@ Description: Persistent key-value database with network interface (client)
  .
  This package contains the command line client and other tools.
 
-Package: valkey-dev
+Package: percona-valkey-dev
+Provides: valkey-dev
+Replaces: valkey-dev
+Conflicts: valkey-dev
 Section: libdevel
 Architecture: any
 Multi-Arch: same
@@ -104,21 +115,15 @@ Description: Development files for Valkey modules
  This package contains the header files needed to develop Valkey modules.
  Includes valkeymodule.h and RPM macros for module packaging.
 
-Package: valkey-compat-redis
-Architecture: all
+Package: percona-valkey-compat-redis
+Provides: valkey-compat-redis, redis-server, redis-tools
+Replaces: valkey-compat-redis, redis-server (<< 7.4~), redis-tools (<< 7.4~)
+Conflicts: valkey-compat-redis, redis-server (<< 7.4~), redis-tools (<< 7.4~)
+Architecture: any
 Depends:
- valkey-server (>= ${source:Version}),
- valkey-tools (>= ${source:Version}),
+ percona-valkey-server (>= ${source:Version}),
+ percona-valkey-tools (>= ${source:Version}),
  ${misc:Depends}
-Conflicts:
- redis-server (<< 7.4~),
- redis-tools (<< 7.4~)
-Provides:
- redis-server,
- redis-tools
-Replaces:
- redis-server (<< 7.4~),
- redis-tools (<< 7.4~)
 Description: Redis compatibility symlinks for Valkey
  This package provides compatibility symlinks and wrappers to enable
  easy conversion from Redis to Valkey. It provides redis-* command names
@@ -126,29 +131,28 @@ Description: Redis compatibility symlinks for Valkey
  .
  This is a transitional package to help migrate from Redis to Valkey.
 
-Package: valkey-compat-redis-dev
+Package: percona-valkey-compat-redis-dev
+Provides: valkey-compat-redis-dev, redis-dev
+Replaces: valkey-compat-redis-dev, redis-dev (<< 7.4~)
+Conflicts: valkey-compat-redis-dev, redis-dev (<< 7.4~)
 Section: libdevel
-Architecture: all
-Multi-Arch: foreign
+Architecture: any
+Multi-Arch: same
 Depends:
- valkey-dev (>= ${source:Version}),
+ percona-valkey-dev (>= ${source:Version}),
  ${misc:Depends}
-Conflicts:
- redis-dev (<< 7.4~)
-Provides:
- redis-dev
-Replaces:
- redis-dev (<< 7.4~)
 Description: Redis API compatibility headers for Valkey modules
  This package provides the legacy redismodule.h header for building
  Valkey modules with the Redis API.
  .
  This is a transitional package to help migrate Redis modules to Valkey.
 
-Package: valkey-doc
+Package: percona-valkey-doc
+Provides: valkey-doc
+Replaces: valkey-doc
+Conflicts: valkey-doc
 Section: doc
-Architecture: all
-Multi-Arch: foreign
+Architecture: any
 Depends:
  ${misc:Depends}
 Build-Profiles: <!nodoc>

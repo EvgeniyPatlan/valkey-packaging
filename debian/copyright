@@ -278,6 +278,7 @@ License: Expat
 Files: debian/*
 Copyright: © 2009—2022 Chris Lamb <lamby@debian.org>
            © 2024 Lucas Kanashiro <kanashiro@debian.org>
+           © 2024—2025 Evgeniy Patlan <evgeniy.patlan@percona.com>
 License: BSD-3-clause
 
 License: BSD-2-clause

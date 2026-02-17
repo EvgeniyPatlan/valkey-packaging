@@ -1,4 +1,4 @@
 # Upstream do not provide signed tarballs.
-valkey source: debian-watch-does-not-check-openpgp-signature
-valkey source: maintainer-manual-page
-valkey source: very-long-line-length-in-source-file
+percona-valkey source: debian-watch-does-not-check-openpgp-signature
+percona-valkey source: maintainer-manual-page
+percona-valkey source: very-long-line-length-in-source-file
