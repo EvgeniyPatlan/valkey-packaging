@@ -48,6 +48,7 @@ KEEP_CONTAINERS=false
 
 # Runtime state
 CONTAINERS_STARTED=()
+TEMP_IMAGES=()
 declare -A RESULTS=()
 
 ###############################################################################
@@ -121,18 +122,53 @@ cleanup() {
         if [[ ${#CONTAINERS_STARTED[@]} -gt 0 ]]; then
             warn "Keeping containers (--keep): ${CONTAINERS_STARTED[*]}"
         fi
-        return
+    else
+        for cname in "${CONTAINERS_STARTED[@]}"; do
+            if docker inspect "$cname" &>/dev/null; then
+                docker rm -f "$cname" >/dev/null 2>&1 || true
+            fi
+        done
     fi
-    for cname in "${CONTAINERS_STARTED[@]}"; do
-        if docker inspect "$cname" &>/dev/null; then
-            docker rm -f "$cname" >/dev/null 2>&1 || true
-        fi
+    # Always clean up temporary images
+    for img in "${TEMP_IMAGES[@]}"; do
+        docker rmi -f "$img" >/dev/null 2>&1 || true
     done
 }
 
 ###############################################################################
 # Docker operations
 ###############################################################################
+
+# Ensure the image has systemd + /sbin/init. Base images like ubuntu:24.04
+# ship without it. Returns the image name to use (original or prepared).
+prepare_image() {
+    local image="$1" family="$2"
+    local prepared_tag="valkey-test-prepared-$(slug "$image")"
+
+    # Check if /sbin/init exists in the image
+    if docker run --rm "$image" test -x /sbin/init 2>/dev/null; then
+        echo "$image"
+        return
+    fi
+
+    log "Base image $image lacks /sbin/init — installing systemd..."
+    local install_cmd
+    if [[ "$family" == "deb" ]]; then
+        install_cmd="apt-get update -qq && apt-get install -y -qq systemd systemd-sysv >/dev/null 2>&1"
+    else
+        install_cmd="yum install -y systemd >/dev/null 2>&1"
+    fi
+
+    local tmp_container="valkey-prep-$(slug "$image")-$$"
+    docker run --name "$tmp_container" "$image" bash -c "$install_cmd"
+    docker commit "$tmp_container" "$prepared_tag" >/dev/null
+    docker rm -f "$tmp_container" >/dev/null 2>&1 || true
+    TEMP_IMAGES+=("$prepared_tag")
+
+    log "Prepared image: $prepared_tag"
+    echo "$prepared_tag"
+}
+
 start_container() {
     local image="$1" name="$2"
 
@@ -190,8 +226,12 @@ run_test_on_image() {
     log "Testing on $image ($family)"
     printf "${BOLD}================================================================${RESET}\n"
 
+    # Prepare image (install systemd if missing)
+    local run_image
+    run_image="$(prepare_image "$image" "$family")"
+
     # Start container
-    if ! start_container "$image" "$cname"; then
+    if ! start_container "$run_image" "$cname"; then
         err "Failed to start container for $image"
         RESULTS["$image"]="FAIL"
         return 1
