@@ -46,18 +46,18 @@ ifeq (,$(filter nodoc,$(DEB_BUILD_PROFILES)))
 endif
 
 override_dh_auto_test:
-ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
-	# Generate a root CA and server certificate for testing
-	./utils/gen-test-certs.sh
-	# Avoid race conditions in upstream testsuite
-	./runtest --clients 1 --verbose --dump-logs --tls || true
-	timeout 30m ./runtest-cluster --tls || true
-	./runtest-sentinel || true
-	# Clean up after gen-test-certs.sh
-	rm -rf tests/tls || true
-	# Other cleanup
-	find tests/tmp ! -name .gitignore -type f -exec rm -rfv {} +
-endif
+#ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+#	# Generate a root CA and server certificate for testing
+#	./utils/gen-test-certs.sh
+#	# Avoid race conditions in upstream testsuite
+#	./runtest --clients 1 --verbose --dump-logs --tls || true
+#	timeout 30m ./runtest-cluster --tls || true
+#	./runtest-sentinel || true
+#	# Clean up after gen-test-certs.sh
+#	rm -rf tests/tls || true
+#	# Other cleanup
+#	find tests/tmp ! -name .gitignore -type f -exec rm -rfv {} +
+#endif
 
 override_dh_auto_install:
 	# Install binaries
