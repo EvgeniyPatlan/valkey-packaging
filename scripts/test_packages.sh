@@ -499,6 +499,11 @@ test_systemd_service_hardening() {
         server_service="valkey@default"
     fi
 
+    # Detect systemd version for feature-gating
+    local sd_ver
+    sd_ver=$(systemctl --version 2>/dev/null | head -1 | awk '{print $2}')
+    sd_ver=${sd_ver:-0}
+
     # Common properties (both deb and rpm)
     local common_props=(
         "Type:notify"
@@ -507,17 +512,35 @@ test_systemd_service_hardening() {
         "PrivateTmp:yes"
         "ProtectHome:yes"
         "PrivateDevices:yes"
-        "ProtectHostname:yes"
-        "ProtectClock:yes"
         "ProtectKernelTunables:yes"
         "ProtectKernelModules:yes"
-        "ProtectKernelLogs:yes"
         "ProtectControlGroups:yes"
         "NoNewPrivileges:yes"
         "RestrictNamespaces:yes"
         "RestrictSUIDSGID:yes"
         "RestrictRealtime:yes"
     )
+
+    # ProtectHostname requires systemd >= 242
+    if [[ "$sd_ver" -ge 242 ]]; then
+        common_props+=("ProtectHostname:yes")
+    else
+        skip "ProtectHostname (systemd $sd_ver < 242)"
+    fi
+
+    # ProtectKernelLogs requires systemd >= 244
+    if [[ "$sd_ver" -ge 244 ]]; then
+        common_props+=("ProtectKernelLogs:yes")
+    else
+        skip "ProtectKernelLogs (systemd $sd_ver < 244)"
+    fi
+
+    # ProtectClock requires systemd >= 247
+    if [[ "$sd_ver" -ge 247 ]]; then
+        common_props+=("ProtectClock:yes")
+    else
+        skip "ProtectClock (systemd $sd_ver < 247)"
+    fi
 
     for entry in "${common_props[@]}"; do
         local prop="${entry%%:*}" expected="${entry#*:}"
