@@ -180,7 +180,7 @@ valkeymodule.h API header and RPM macros for module packaging.
 
 %package        compat-redis
 Summary:        Conversion script and compatibility symlinks for Redis
-Requires:       %{name} = %{version}-%{release}
+Requires:       %{name} >= %{version}
 Requires(post): /usr/bin/find
 BuildArch:      noarch
 Provides:       valkey-compat-redis = %{version}-%{release}
@@ -199,7 +199,7 @@ that redirect to the equivalent valkey-* commands.
 
 %package        compat-redis-devel
 Summary:        Compatibility development header for Redis API Valkey modules
-Requires:       %{name}-devel = %{version}-%{release}
+Requires:       %{name}-devel >= %{version}
 BuildArch:      noarch
 Provides:       valkey-compat-redis-devel = %{version}-%{release}
 Obsoletes:      valkey-compat-redis-devel < %{version}-%{release}
