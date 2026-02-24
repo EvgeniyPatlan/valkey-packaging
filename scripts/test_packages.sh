@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # test_packages.sh — Automated test suite for Percona Valkey packages
 #
-# Usage: bash scripts/test_packages.sh --pkg-dir=/path/to/debs_or_rpms [--version=X.Y.Z]
+# Usage: bash scripts/test_packages.sh [--pkg-dir=DIR | --repo] [--version=X.Y.Z]
 #
-# Auto-detects OS (Debian vs RHEL), installs all packages from a directory,
-# runs validation tests, removes packages, and verifies clean removal.
+# Auto-detects OS (Debian vs RHEL), installs packages from a local directory
+# or from the Percona repository, runs validation tests, removes packages,
+# and verifies clean removal.
 
 set -euo pipefail
 
@@ -15,6 +16,8 @@ PASS_COUNT=0
 FAIL_COUNT=0
 SKIP_COUNT=0
 PKG_DIR=""
+INSTALL_MODE=""  # "pkg-dir" or "repo"
+REPO_CHANNEL="testing"
 OS_FAMILY=""  # "deb" or "rpm"
 EXPECTED_VERSION=""
 START_TIME=""
@@ -269,6 +272,52 @@ install_packages_rpm() {
 
     echo "Installing ${#rpms[@]} package(s)..."
     yum localinstall -y "${rpms[@]}" 2>&1
+    # Capture installed package names and versions
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && INSTALLED_PKGS+=("$line")
+    done < <(rpm -qa 'percona-valkey*' --qf '%{NAME} %{EPOCH}:%{VERSION}-%{RELEASE} %{ARCH}\n' 2>/dev/null)
+    echo "Installation complete."
+}
+
+###############################################################################
+# Repo-based install (percona-release)
+###############################################################################
+install_percona_release_deb() {
+    echo "Installing percona-release (deb)..."
+    local tmp_deb
+    tmp_deb="$(mktemp /tmp/percona-release-XXXXXX.deb)"
+    wget -q -O "$tmp_deb" https://repo.percona.com/apt/percona-release_latest.generic_all.deb
+    dpkg -i "$tmp_deb"
+    rm -f "$tmp_deb"
+    apt-get update -qq
+}
+
+install_percona_release_rpm() {
+    echo "Installing percona-release (rpm)..."
+    yum install -y https://repo.percona.com/yum/percona-release-latest.noarch.rpm
+}
+
+install_from_repo_deb() {
+    section_header "Installing from Percona repo (deb, channel=$REPO_CHANNEL)"
+    apt-get update -qq
+    apt-get install -y -qq wget gnupg2 lsb-release curl
+    install_percona_release_deb
+    percona-release enable valkey-90 "$REPO_CHANNEL"
+    apt-get update -qq
+    apt-get install -y percona-valkey-server percona-valkey-sentinel \
+        percona-valkey-tools percona-valkey-compat-redis percona-valkey-dev
+    # Capture installed package names and versions
+    while IFS= read -r line; do
+        INSTALLED_PKGS+=("$line")
+    done < <(dpkg -l 'percona-valkey*' 2>/dev/null | awk '/^ii/ {printf "%s %s %s\n", $2, $3, $4}')
+    echo "Installation complete."
+}
+
+install_from_repo_rpm() {
+    section_header "Installing from Percona repo (rpm, channel=$REPO_CHANNEL)"
+    install_percona_release_rpm
+    percona-release enable valkey-90 "$REPO_CHANNEL"
+    yum install -y percona-valkey percona-valkey-compat-redis percona-valkey-devel
     # Capture installed package names and versions
     while IFS= read -r line; do
         [[ -n "$line" ]] && INSTALLED_PKGS+=("$line")
@@ -1131,24 +1180,35 @@ main() {
         case "$arg" in
             --pkg-dir=*)
                 PKG_DIR="${arg#*=}"
+                INSTALL_MODE="pkg-dir"
+                ;;
+            --repo)
+                INSTALL_MODE="repo"
+                ;;
+            --repo-channel=*)
+                REPO_CHANNEL="${arg#*=}"
                 ;;
             --version=*)
                 EXPECTED_VERSION="${arg#*=}"
                 ;;
             --help|-h)
-                echo "Usage: $0 --pkg-dir=/path/to/packages [--version=X.Y.Z]"
+                echo "Usage: $0 [--pkg-dir=DIR | --repo] [OPTIONS]"
                 echo ""
                 echo "Auto-detects OS, installs Percona Valkey packages, runs tests,"
                 echo "removes packages, and verifies clean removal."
                 echo ""
+                echo "Install source (one required):"
+                echo "  --pkg-dir=DIR           Directory containing .deb or .rpm packages"
+                echo "  --repo                  Install from Percona repository"
+                echo ""
                 echo "Options:"
-                echo "  --pkg-dir=DIR       Directory containing .deb or .rpm packages"
-                echo "  --version=X.Y.Z    Expected Valkey version (auto-detected if omitted)"
+                echo "  --repo-channel=CHANNEL  Repo channel: testing (default) or release"
+                echo "  --version=X.Y.Z         Expected Valkey version (auto-detected if omitted)"
                 exit 0
                 ;;
             *)
                 echo "Unknown argument: $arg" >&2
-                echo "Usage: $0 --pkg-dir=/path/to/packages [--version=X.Y.Z]" >&2
+                echo "Usage: $0 [--pkg-dir=DIR | --repo] [OPTIONS]" >&2
                 exit 1
                 ;;
         esac
@@ -1156,37 +1216,42 @@ main() {
 
     START_TIME=$(date +%s)
 
-    if [[ -z "$PKG_DIR" ]]; then
-        echo "ERROR: --pkg-dir is required" >&2
-        echo "Usage: $0 --pkg-dir=/path/to/packages" >&2
+    if [[ -z "$INSTALL_MODE" ]]; then
+        echo "ERROR: either --pkg-dir or --repo is required" >&2
+        echo "Usage: $0 [--pkg-dir=DIR | --repo] [OPTIONS]" >&2
         exit 1
     fi
 
-    if [[ ! -d "$PKG_DIR" ]]; then
-        echo "ERROR: Package directory does not exist: $PKG_DIR" >&2
-        exit 1
-    fi
-
-    # Resolve to absolute path
-    PKG_DIR="$(cd "$PKG_DIR" && pwd)"
-
-    # Auto-detect version from package filenames if not provided
-    if [[ -z "$EXPECTED_VERSION" ]]; then
-        local pkg_file
-        pkg_file="$(find "$PKG_DIR" -maxdepth 1 -name 'percona-valkey-server*' \( -name '*.deb' -o -name '*.rpm' \) | head -1)"
-        if [[ -n "$pkg_file" ]]; then
-            EXPECTED_VERSION="$(basename "$pkg_file" | grep -oP '[\._-]\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    if [[ "$INSTALL_MODE" == "pkg-dir" ]]; then
+        if [[ ! -d "$PKG_DIR" ]]; then
+            echo "ERROR: Package directory does not exist: $PKG_DIR" >&2
+            exit 1
         fi
+        # Resolve to absolute path
+        PKG_DIR="$(cd "$PKG_DIR" && pwd)"
+
+        # Auto-detect version from package filenames if not provided
+        if [[ -z "$EXPECTED_VERSION" ]]; then
+            local pkg_file
+            pkg_file="$(find "$PKG_DIR" -maxdepth 1 -name 'percona-valkey-server*' \( -name '*.deb' -o -name '*.rpm' \) | head -1)"
+            if [[ -n "$pkg_file" ]]; then
+                EXPECTED_VERSION="$(basename "$pkg_file" | grep -oP '[\._-]\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+            fi
+        fi
+        echo "Package directory: $PKG_DIR"
+    else
+        echo "Install mode: repo (channel=$REPO_CHANNEL)"
     fi
 
-    echo "Package directory: $PKG_DIR"
     if [[ -n "$EXPECTED_VERSION" ]]; then
         echo "Expected version: $EXPECTED_VERSION"
     fi
     detect_os
 
     # Install
-    if [[ "$OS_FAMILY" == "deb" ]]; then
+    if [[ "$INSTALL_MODE" == "repo" ]]; then
+        install_from_repo_"$OS_FAMILY"
+    elif [[ "$OS_FAMILY" == "deb" ]]; then
         install_packages_deb
     else
         install_packages_rpm
