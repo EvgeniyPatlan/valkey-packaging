@@ -151,7 +151,7 @@ prepare_image() {
         return
     fi
 
-    log "Base image $image lacks /sbin/init — installing systemd..."
+    log "Base image $image lacks /sbin/init — installing systemd..." >&2
     local install_cmd
     if [[ "$family" == "deb" ]]; then
         install_cmd="apt-get update -qq && apt-get install -y -qq systemd systemd-sysv >/dev/null 2>&1"
@@ -160,12 +160,12 @@ prepare_image() {
     fi
 
     local tmp_container="valkey-prep-$(slug "$image")-$$"
-    docker run --name "$tmp_container" "$image" bash -c "$install_cmd"
+    docker run --name "$tmp_container" "$image" bash -c "$install_cmd" >&2
     docker commit "$tmp_container" "$prepared_tag" >/dev/null
     docker rm -f "$tmp_container" >/dev/null 2>&1 || true
     TEMP_IMAGES+=("$prepared_tag")
 
-    log "Prepared image: $prepared_tag"
+    log "Prepared image: $prepared_tag" >&2
     echo "$prepared_tag"
 }
 
