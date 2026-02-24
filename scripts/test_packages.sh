@@ -542,6 +542,95 @@ test_systemd_enable_disable() {
     done
 }
 
+test_systemd_start_stop_restart() {
+    section_header "Test: Systemd Start/Stop/Restart"
+
+    if ! has_systemd; then
+        skip "systemd not available — skipping start/stop/restart tests"
+        return
+    fi
+
+    local server_service sentinel_service
+    if [[ "$OS_FAMILY" == "deb" ]]; then
+        server_service="valkey-server"
+        sentinel_service="valkey-sentinel"
+    else
+        server_service="valkey@default"
+        sentinel_service="valkey-sentinel@default"
+    fi
+
+    for svc in "$server_service" "$sentinel_service"; do
+        # Start
+        if systemctl start "$svc" 2>&1; then
+            pass "start $svc"
+        else
+            fail "start $svc"
+            journalctl -u "$svc" --no-pager -n 20 2>&1 || true
+            continue
+        fi
+
+        if wait_for_service "$svc" 15; then
+            pass "$svc is active after start"
+        else
+            fail "$svc is active after start (timed out)"
+            systemctl stop "$svc" 2>/dev/null || true
+            continue
+        fi
+
+        # Get PID before restart
+        local pid_before
+        pid_before="$(systemctl show "$svc" --property=MainPID --value 2>/dev/null)" || true
+
+        # Restart
+        if systemctl restart "$svc" 2>&1; then
+            pass "restart $svc"
+        else
+            fail "restart $svc"
+            journalctl -u "$svc" --no-pager -n 20 2>&1 || true
+            systemctl stop "$svc" 2>/dev/null || true
+            continue
+        fi
+
+        if wait_for_service "$svc" 15; then
+            pass "$svc is active after restart"
+        else
+            fail "$svc is active after restart (timed out)"
+            systemctl stop "$svc" 2>/dev/null || true
+            continue
+        fi
+
+        # Verify PID changed
+        local pid_after
+        pid_after="$(systemctl show "$svc" --property=MainPID --value 2>/dev/null)" || true
+        if [[ -n "$pid_after" ]] && [[ "$pid_after" != "0" ]] && [[ "$pid_after" != "$pid_before" ]]; then
+            pass "$svc PID changed after restart ($pid_before -> $pid_after)"
+        else
+            fail "$svc PID changed after restart (before=$pid_before after=$pid_after)"
+        fi
+
+        # Stop
+        if systemctl stop "$svc" 2>&1; then
+            pass "stop $svc"
+        else
+            fail "stop $svc"
+        fi
+        sleep 1
+
+        if ! systemctl is-active --quiet "$svc" 2>/dev/null; then
+            pass "$svc is inactive after stop"
+        else
+            fail "$svc is inactive after stop (still active)"
+        fi
+
+        # Stop again — should be idempotent
+        if systemctl stop "$svc" 2>&1; then
+            pass "stop $svc (idempotent)"
+        else
+            fail "stop $svc (idempotent)"
+        fi
+    done
+}
+
 test_systemd_runtime_environment() {
     section_header "Test: Systemd Runtime Environment"
 
@@ -1113,6 +1202,7 @@ main() {
     test_systemd_unit_files
     test_systemd_service_hardening
     test_systemd_enable_disable
+    test_systemd_start_stop_restart
     test_valkey_server_service
     test_valkey_sentinel_service
     test_systemd_runtime_environment
