@@ -305,7 +305,8 @@ install_from_repo_deb() {
     percona-release enable valkey-9.0 "$REPO_CHANNEL"
     apt-get update -qq
     apt-get install -y percona-valkey-server percona-valkey-sentinel \
-        percona-valkey-tools percona-valkey-compat-redis percona-valkey-dev
+        percona-valkey-tools percona-valkey-compat-redis percona-valkey-compat-redis-dev \
+        percona-valkey-dev
     # Capture installed package names and versions
     while IFS= read -r line; do
         INSTALLED_PKGS+=("$line")
