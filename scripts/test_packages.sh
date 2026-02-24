@@ -1202,7 +1202,7 @@ main() {
                 echo "  --repo                  Install from Percona repository"
                 echo ""
                 echo "Options:"
-                echo "  --repo-channel=CHANNEL  Repo channel: testing (default) or release"
+                echo "  --repo-channel=CHANNEL  Repo channel: testing (default), release, or experimental"
                 echo "  --version=X.Y.Z         Expected Valkey version (auto-detected if omitted)"
                 exit 0
                 ;;

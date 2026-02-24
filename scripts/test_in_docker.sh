@@ -60,7 +60,7 @@ Usage: scripts/test_in_docker.sh [OPTIONS]
 Install source (one required):
   --pkg-dir=DIR           Install from local .deb/.rpm files in DIR
   --repo                  Install from Percona repository
-  --repo-channel=CHANNEL  Repo channel: testing (default) or release
+  --repo-channel=CHANNEL  Repo channel: testing (default), release, or experimental
 
 Target selection:
   --image=IMAGE           Run on a single Docker image (e.g. ubuntu:24.04)
