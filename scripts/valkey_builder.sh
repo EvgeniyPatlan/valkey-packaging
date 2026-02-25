@@ -243,7 +243,7 @@ get_system() {
     elif [[ -f /etc/system-release ]] && grep -qi "amazon" /etc/system-release 2>/dev/null; then
         OS="rpm"
         RHEL="$(rpm --eval %rhel 2>/dev/null || echo 0)"
-        OS_NAME="amzn"
+        OS_NAME="amzn2023"
         PLATFORM_FAMILY="amazon"
     elif command -v rpm &>/dev/null && ! command -v dpkg &>/dev/null; then
         OS="rpm"
