@@ -83,14 +83,12 @@ Patch1001:      %{valkey_name}-conf.patch
 BuildRequires:  make
 BuildRequires:  gcc
 
-%if %{with tests}
 %if 0%{?is_suse}
 BuildRequires:  procps
 %else
 BuildRequires:  procps-ng
 %endif
 BuildRequires:  tcl
-%endif
 
 %if 0%{?is_suse}
 BuildRequires:  jemalloc-devel
