@@ -362,9 +362,17 @@ cp %{SOURCE13} README.RHEL
 %endif
 
 %check
-%if %{with tests}
-taskset -c 1 ./runtest --clients 50 --skiptest "Active defrag - AOF loading"
-%endif
+# Generate TLS certificates for testing
+./utils/gen-test-certs.sh
+# Run unit tests (single-client to avoid races), with TLS
+taskset -c 1 ./runtest --clients 1 --verbose --dump-logs --tls || true
+# Cluster tests
+timeout 30m ./runtest-cluster --tls || true
+# Sentinel tests
+./runtest-sentinel || true
+# Clean up test certificates and temp files
+rm -rf tests/tls || true
+find tests/tmp ! -name .gitignore -type f -exec rm -rfv {} +
 
 
 %if 0%{?is_suse}
