@@ -522,11 +522,11 @@ EOF
 %endif
 
 %changelog
-* Mon Feb 17 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.0.1-1.2
+* Tue Feb 17 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.0.2-1.1
 - Rename package from valkey to percona-valkey for Percona branding
 - Add Provides/Obsoletes for smooth upgrades from valkey packages
 
-* Mon Feb 17 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.0.1-1.1
+* Tue Feb 17 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.0.1-1.1
 - Fix: apply conf patch on all distros, not just SUSE
 - Fix: install default instance configs (default.conf, sentinel-default.conf)
 - Fix: use system jemalloc instead of bundled
