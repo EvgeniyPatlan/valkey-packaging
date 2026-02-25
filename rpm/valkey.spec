@@ -361,6 +361,13 @@ cp %{SOURCE13} README.RHEL
 %endif
 
 %check
+# Ensure tclsh is findable (runtest looks for tclsh8.6/tclsh8.5;
+# some distros only ship the unversioned 'tclsh' binary)
+if ! command -v tclsh8.6 >/dev/null 2>&1 && ! command -v tclsh8.5 >/dev/null 2>&1; then
+    if command -v tclsh >/dev/null 2>&1; then
+        ln -sf "$(command -v tclsh)" /usr/local/bin/tclsh8.6
+    fi
+fi
 # Generate TLS certificates for testing
 ./utils/gen-test-certs.sh
 # Run unit tests (single-client to avoid races), with TLS
