@@ -329,7 +329,7 @@ install_deps_rpm() {
         log_info "Installing RPM build dependencies..."
         $pkg_mgr install -y \
             rpm-build rpmdevtools gcc make wget tar gzip git \
-            jemalloc-devel openssl-devel pkgconfig \
+            jemalloc-devel openssl openssl-devel pkgconfig \
             python3 tcl procps-ng \
             systemd-devel systemd-rpm-macros
 
