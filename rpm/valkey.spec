@@ -85,6 +85,7 @@ BuildRequires:  procps
 BuildRequires:  procps-ng
 %endif
 BuildRequires:  tcl
+BuildRequires:  openssl
 
 %if 0%{?is_suse}
 BuildRequires:  jemalloc-devel
