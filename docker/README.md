@@ -1,38 +1,52 @@
 # Hardened Valkey Docker Image
 
-A security-hardened Docker image for Valkey built from Percona DEB packages.
+A security-hardened Docker image for Valkey built from Percona packages installed via the `valkey-9.0` Percona repository.
 
 ## Prerequisites
 
 - Docker 20.10+
 - Docker Compose 1.29+
-- Valkey DEB package (e.g., `valkey_9.0.2-1.trixie_amd64.deb`)
 
 ## Quick Start
 
-1. **Place your DEB package** in this directory
-   ```bash
-   cp /path/to/valkey-*.deb .
-   ```
-
-2. **Build the image**
+1. **Build the image**
    ```bash
    make build
    ```
 
-3. **Run the container**
+2. **Run the container**
    ```bash
    make run
    ```
 
-4. **Test the installation**
+3. **Test the installation**
    ```bash
    make test
    ```
 
+## Build Arguments
+
+### `REPO_CHANNEL`
+
+Controls which Percona repository channel to install packages from. Default: `testing`.
+
+```bash
+# Build with testing channel (default)
+make build
+
+# Build with release channel
+make build REPO_CHANNEL=release
+
+# Or directly with docker build
+docker build --build-arg REPO_CHANNEL=release -t percona/valkey:9.0.3-hardened -f Dockerfile.hardened .
+```
+
+Available channels: `testing`, `release`, `experimental`.
+
 ## Files Description
 
-- **Dockerfile.hardened** - Multi-stage hardened Dockerfile
+- **Dockerfile** - UBI9/RPM-based Dockerfile
+- **Dockerfile.hardened** - Multi-stage hardened Dockerfile (Debian Trixie Slim)
 - **docker-entrypoint.sh** - Enhanced entrypoint with env var support
 - **docker-compose.yml** - Development configuration
 - **docker-compose.prod.yml** - Production configuration with password
@@ -63,17 +77,15 @@ You have **three ways** to configure Valkey (from simplest to most complex):
 
 ### Option 1: Default Package Config (Simplest - for Development)
 
-### Option 1: Default Package Config (Simplest - for Development)
-
 Just build and run - uses package defaults with protected-mode:
 ```bash
 make build
 make run
 ```
 
-✅ No password required (protected-mode enabled)
-✅ Only localhost can connect
-✅ Perfect for development
+No password required (protected-mode enabled)
+Only localhost can connect
+Perfect for development
 
 ### Option 2: Environment Variables (Recommended for Production)
 
@@ -95,16 +107,14 @@ Set password and other settings via environment variables:
    docker-compose -f docker-compose.prod.yml up -d
    ```
 
-✅ Password set securely via environment variable
-✅ No config file editing needed
-✅ Easy to use with secrets management
+Password set securely via environment variable
+No config file editing needed
+Easy to use with secrets management
 
 **Available environment variables:**
 - `VALKEY_PASSWORD` - Set requirepass (no password if empty)
 - `VALKEY_MAXMEMORY` - Set max memory (e.g., 512mb, 2gb)
 - `VALKEY_BIND` - Set bind address (default from package)
-
-### Option 3: Custom Configuration File (Most Control)
 
 ### Option 3: Custom Configuration File (Most Control)
 
@@ -128,7 +138,7 @@ For advanced configurations (rename commands, AOF settings, etc.):
    ```yaml
    volumes:
      - ./valkey.conf:/etc/valkey/valkey.conf:ro
-   
+
    command: ["valkey-server", "/etc/valkey/valkey.conf"]
    ```
 
@@ -138,16 +148,15 @@ For advanced configurations (rename commands, AOF settings, etc.):
    make run
    ```
 
- Full control over all Valkey settings
- Can rename/disable dangerous commands
- Best for complex production scenarios
+Full control over all Valkey settings
+Can rename/disable dangerous commands
+Best for complex production scenarios
 
 ## Quick Start Examples
 
 ### Development (No Password)
 ```bash
-# Just build and run
-cp /path/to/valkey_*.deb .
+# Build and run
 make build
 make run
 
@@ -246,7 +255,7 @@ make help     # Show available targets
 
 ### Build
 ```bash
-docker build -t percona/valkey:9.0.2-hardened -f Dockerfile.hardened .
+docker build --build-arg REPO_CHANNEL=testing -t percona/valkey:9.0.3-hardened -f Dockerfile.hardened .
 ```
 
 ### Run with security options
@@ -259,7 +268,7 @@ docker run -d \
   --read-only \
   -v valkey-data:/data \
   -p 127.0.0.1:6379:6379 \
-  percona/valkey:9.0.2-hardened
+  percona/valkey:9.0.3-hardened
 ```
 
 ### Connect to Valkey
@@ -332,11 +341,11 @@ docker exec -it valkey-hardened valkey-cli CONFIG GET protected-mode
 
 ```bash
 # Verify non-root user
-docker run --rm percona/valkey:9.0.2-hardened id
+docker run --rm percona/valkey:9.0.3-hardened id
 
 # Verify dropped capabilities
-docker run --rm --cap-drop=ALL percona/valkey:9.0.2-hardened valkey-cli --version
+docker run --rm --cap-drop=ALL percona/valkey:9.0.3-hardened valkey-cli --version
 
 # Check setuid binaries
-docker run --rm percona/valkey:9.0.2-hardened find / -perm /6000 -type f 2>/dev/null
+docker run --rm percona/valkey:9.0.3-hardened find / -perm /6000 -type f 2>/dev/null
 ```

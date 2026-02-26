@@ -10,7 +10,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.hardened
-    image: percona/valkey:9.0.2-hardened
+      args:
+        REPO_CHANNEL: ${REPO_CHANNEL:-testing}
+    image: percona/valkey:9.0.3-hardened
     container_name: valkey-prod
     hostname: valkey
     restart: unless-stopped

@@ -1,69 +1,95 @@
-FROM debian:trixie-slim AS base
+FROM dhi.io/debian-base:trixie-dev AS package-install
 
-FROM base AS package-install
-
-COPY valkey-*.deb /tmp/
+ARG REPO_CHANNEL=testing
 
 RUN set -eux; \
 	apt-get update; \
 	apt-get install -y --no-install-recommends \
 		ca-certificates \
+		wget \
+		gnupg \
+		gpgv \
+		curl \
+		lsb-release \
+		bsdutils \
 	; \
-	dpkg -i /tmp/valkey-*.deb || apt-get install -f -y --no-install-recommends; \
+	groupadd -r adm 2>/dev/null || true; \
+	groupadd -r valkey 2>/dev/null || groupadd -r -g 998 valkey; \
+	useradd -r -g valkey -G adm -d /var/lib/valkey -s /usr/sbin/nologin valkey; \
+	mkdir -p /var/lib/valkey; \
+	chown valkey:valkey /var/lib/valkey; \
+	wget -q -O /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb; \
+	dpkg -i /tmp/percona-release.deb; \
+	percona-release enable valkey-9.0 ${REPO_CHANNEL}; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
+		percona-valkey-server \
+		percona-valkey-tools \
+	; \
 	rm -rf /var/lib/apt/lists/* /tmp/*.deb; \
 	\
+	mkdir -p /usr/local; \
 	valkeyVersion="$(valkey-server --version | awk '{print $3}' | cut -d= -f2)"; \
 	echo "{\"spdxVersion\":\"SPDX-2.3\",\"SPDXID\":\"SPDXRef-DOCUMENT\",\"name\":\"valkey-server-sbom\",\"packages\":[{\"name\":\"valkey-server\",\"versionInfo\":\"${valkeyVersion}\",\"SPDXID\":\"SPDXRef-Package--valkey-server\",\"supplier\":\"Organization: Percona\",\"externalRefs\":[{\"referenceCategory\":\"PACKAGE-MANAGER\",\"referenceType\":\"purl\",\"referenceLocator\":\"pkg:deb/debian/valkey-server@${valkeyVersion}?os_name=debian&os_version=trixie\"}],\"licenseDeclared\":\"BSD-3-Clause\"}]}" > /usr/local/valkey.spdx.json; \
 	\
 	valkey-cli --version; \
 	valkey-server --version
 
-FROM base
+# Prepare runtime filesystem layout in the build stage
+RUN set -eux; \
+	mkdir -p /runtime/data /runtime/run/valkey /runtime/etc /runtime/usr/local/bin /runtime/usr/local /runtime/lib; \
+	\
+	cp /usr/bin/valkey-* /runtime/usr/local/bin/; \
+	cp /usr/local/valkey.spdx.json /runtime/usr/local/; \
+	cp -a /etc/valkey /runtime/etc/valkey; \
+	\
+	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli; do \
+		ldd "$bin" | awk '/=>/ {print $3}' | while read -r lib; do \
+			[ -f "$lib" ] && cp -L "$lib" /runtime/lib/; \
+		done; \
+	done; \
+	\
+	VALKEY_UID=$(id -u valkey); \
+	VALKEY_GID=$(getent group valkey | cut -d: -f3); \
+	chown ${VALKEY_UID}:${VALKEY_GID} /runtime/data /runtime/run/valkey /runtime/etc/valkey; \
+	chmod 750 /runtime/data /runtime/run/valkey; \
+	\
+	grep '^valkey:' /etc/passwd > /runtime/etc/passwd.valkey; \
+	grep '^root:' /etc/passwd >> /runtime/etc/passwd.valkey; \
+	grep '^valkey:' /etc/group > /runtime/etc/group.valkey; \
+	grep '^root:' /etc/group >> /runtime/etc/group.valkey
 
-ENV VALKEY_VERSION=9.0.2
+COPY docker-entrypoint.sh /runtime/usr/local/bin/docker-entrypoint.sh
+RUN chmod 755 /runtime/usr/local/bin/docker-entrypoint.sh
+
+FROM dhi.io/debian-base:trixie
+
+ENV VALKEY_VERSION=9.0.3
 
 LABEL org.opencontainers.image.source="https://github.com/valkey-io/valkey" \
       org.opencontainers.image.vendor="Percona" \
       org.opencontainers.image.title="Valkey (Hardened)" \
-      org.opencontainers.image.description="Hardened Valkey image built from Percona DEB package" \
-      org.opencontainers.image.version="9.0.2"
+      org.opencontainers.image.description="Hardened Valkey image built on Docker Hardened Image (DHI)" \
+      org.opencontainers.image.version="9.0.3" \
+      org.opencontainers.image.base.name="dhi.io/debian-base:trixie"
 
-RUN set -eux; \
-	groupadd -r -g 999 valkey; \
-	useradd -r -g valkey -u 999 valkey
+# Copy passwd/group entries for valkey user
+COPY --from=package-install /runtime/etc/passwd.valkey /etc/passwd
+COPY --from=package-install /runtime/etc/group.valkey /etc/group
 
-RUN set -eux; \
-	apt-get update; \
-	apt-get install -y --no-install-recommends \
-		tzdata \
-		libssl3t64 \
-		ca-certificates \
-		util-linux \
-	; \
-	rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; \
-	\
-	find / -xdev -perm /6000 -type f \
-		! -name mount \
-		! -name umount \
-		! -name su \
-		-exec chmod a-s {} \; 2>/dev/null || true
+# Copy valkey binaries, config, and SBOM
+COPY --from=package-install /runtime/usr/local/bin/ /usr/local/bin/
+COPY --from=package-install /runtime/usr/local/valkey.spdx.json /usr/local/
+COPY --from=package-install /runtime/etc/valkey/ /etc/valkey/
 
-COPY --from=package-install --chown=root:root /usr/bin/valkey-* /usr/local/bin/
-COPY --from=package-install --chown=root:root /usr/local/valkey.spdx.json /usr/local/
-COPY --from=package-install --chown=root:root /etc/valkey/ /etc/valkey/
+# Copy all shared libraries valkey needs (collected via ldd)
+COPY --from=package-install /runtime/lib/ /usr/lib/x86_64-linux-gnu/
 
-RUN set -eux; \
-	mkdir -p /data /run/valkey; \
-	chown valkey:valkey /data /run/valkey /etc/valkey; \
-	chmod 750 /data /run/valkey; \
-	\
-	valkey-cli --version; \
-	valkey-server --version
+# Copy data and run directories with correct ownership
+COPY --chown=valkey:valkey --from=package-install /runtime/data/ /data/
+COPY --chown=valkey:valkey --from=package-install /runtime/run/valkey/ /run/valkey/
 
 WORKDIR /data
-
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod 755 /usr/local/bin/docker-entrypoint.sh
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 	CMD valkey-cli ping || exit 1
@@ -72,5 +98,7 @@ VOLUME ["/data"]
 
 EXPOSE 6379
 
-ENTRYPOINT ["docker-entrypoint.sh"]
+USER valkey
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["valkey-server"]
