@@ -37,7 +37,7 @@ RUN set -eux; \
 
 # Prepare runtime filesystem layout in the build stage
 RUN set -eux; \
-	mkdir -p /runtime/data /runtime/run/valkey /runtime/etc /runtime/usr/local/bin /runtime/usr/local /runtime/lib; \
+	mkdir -p /runtime/data /runtime/run/valkey /runtime/etc /runtime/usr/local/bin /runtime/usr/local; \
 	\
 	cp /usr/bin/valkey-* /runtime/usr/local/bin/; \
 	cp /usr/local/valkey.spdx.json /runtime/usr/local/; \
@@ -45,7 +45,11 @@ RUN set -eux; \
 	\
 	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli; do \
 		ldd "$bin" | awk '/=>/ {print $3}' | while read -r lib; do \
-			[ -f "$lib" ] && cp -L "$lib" /runtime/lib/; \
+			if [ -f "$lib" ]; then \
+				libdir="$(dirname "$lib" | sed 's|^/lib|/usr/lib|')"; \
+				mkdir -p "/runtime${libdir}"; \
+				cp -L "$lib" "/runtime${libdir}/"; \
+			fi; \
 		done; \
 	done; \
 	\
@@ -83,7 +87,8 @@ COPY --from=package-install /runtime/usr/local/valkey.spdx.json /usr/local/
 COPY --from=package-install /runtime/etc/valkey/ /etc/valkey/
 
 # Copy all shared libraries valkey needs (collected via ldd)
-COPY --from=package-install /runtime/lib/ /usr/lib/x86_64-linux-gnu/
+# Preserves architecture-specific paths (x86_64-linux-gnu or aarch64-linux-gnu)
+COPY --from=package-install /runtime/usr/lib/ /usr/lib/
 
 # Copy data and run directories with correct ownership
 COPY --chown=valkey:valkey --from=package-install /runtime/data/ /data/
