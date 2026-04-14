@@ -51,11 +51,15 @@ scripts/valkey_builder.sh \
   --build_src_rpm \
   --build_rpm \
   --install_deps \
-  --version=9.0.3 \
-  --branch=9.0.3
+  --version=9.1.0 \
+  --branch=9.1
 ```
 
 Output RPMs are placed in `/tmp/BUILD/rpm/` and in the current directory under `rpm/`.
+
+> **Note:** upstream Valkey 9.1.0 is not yet tagged, so `--branch=9.1` checks out the
+> `9.1` development branch from `valkey-io/valkey` while the resulting package is
+> labelled `9.1.0`. Update to `--branch=9.1.0` once upstream tags the release.
 
 ### Full DEB build (on a Debian/Ubuntu host)
 
@@ -68,8 +72,8 @@ scripts/valkey_builder.sh \
   --build_src_deb \
   --build_deb \
   --install_deps \
-  --version=9.0.3 \
-  --branch=9.0.3
+  --version=9.1.0 \
+  --branch=9.1
 ```
 
 Output .deb files are placed in `/tmp/BUILD/deb/` and in the current directory under `deb/`.
@@ -98,9 +102,9 @@ scripts/valkey_builder.sh \
 | `--build_src_deb` | Build source DEB package |
 | `--build_deb` | Build binary DEB packages (requires source DEB) |
 | `--install_deps` | Install build dependencies (requires root) |
-| `--version=VER` | Version string (default: `9.0.3`) |
+| `--version=VER` | Version string (default: `9.1.0`) |
 | `--release=REL` | Release number (default: `1`) |
-| `--branch=BRANCH` | Git branch/tag to check out (default: `9.0.3`) |
+| `--branch=BRANCH` | Git branch/tag to check out (default: `9.1`) |
 | `--repo=URL` | Source repository URL (default: `https://github.com/valkey-io/valkey.git`) |
 | `--use_local_packaging_script` | Use `debian/` and `rpm/` from this repo instead of cloning |
 

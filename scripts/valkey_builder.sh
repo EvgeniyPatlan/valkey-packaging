@@ -10,9 +10,10 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 readonly PRODUCT="valkey"
 readonly PACKAGE_NAME="percona-valkey"
-readonly DEFAULT_VERSION="9.0.3"
+readonly DEFAULT_VERSION="9.1.0"
 readonly DEFAULT_RELEASE="1"
-readonly DEFAULT_BRANCH="9.0.3"
+# Upstream 9.1.0 is not yet tagged — build from the 9.1 branch.
+readonly DEFAULT_BRANCH="9.1"
 readonly DEFAULT_REPO="https://github.com/valkey-io/valkey.git"
 
 # Absolute path to the directory containing this script

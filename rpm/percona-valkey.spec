@@ -49,8 +49,8 @@
     PREFIX=%{buildroot}%{_prefix}
 
 Name:           percona-valkey
-Version:        9.0.3
-Release:        1.1%{?dist}
+Version:        9.1.0
+Release:        1%{?dist}
 Summary:        Persistent key-value database
 
 # valkey: BSD-3-Clause
@@ -529,6 +529,10 @@ EOF
 %endif
 
 %changelog
+* Tue Apr 14 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.1.0-1
+- Bump to Valkey 9.1.0
+- Built from upstream 9.1 branch (9.1.0 tag not yet released)
+
 * Tue Feb 17 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.0.2-1.1
 - Rename package from valkey to percona-valkey for Percona branding
 - Add Provides/Obsoletes for smooth upgrades from valkey packages
