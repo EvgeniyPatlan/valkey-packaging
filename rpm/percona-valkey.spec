@@ -45,12 +45,10 @@
     USE_SYSTEM_JEMALLOC=yes \\\
     PREFIX=%{_prefix}
 
-# INSTALL_LIB targets %{_libdir} (e.g. /usr/lib64 on x86_64) so libvalkeylua.so
-# lands in the proper arch libdir. The build-time RPATH baked into the binaries
-# (-Wl,-rpath,$(PREFIX)/lib:$(current_dir)/modules/lua) gets stripped at the
-# end of %install with chrpath -d. After that, valkey-server dlopens
-# libvalkeylua.so via glibc's default search path, which on all supported
-# arches includes %{_libdir}.
+# INSTALL_LIB targets the arch libdir (e.g. /usr/lib64 on x86_64) so that
+# libvalkeylua.so lands in the proper location. The build-time RPATH baked
+# into the binaries via upstream's FINAL_LDFLAGS gets stripped at the end
+# of the install section with chrpath -d.
 %global install_flags \\\
     %{build_flags} \\\
     INSTALL_BIN=%{buildroot}%{_bindir} \\\
@@ -284,21 +282,21 @@ popd
 %install
 make install %{install_flags}
 
-# Upstream's install-lua-module hardcodes $(PREFIX)/lib for the new shared
-# Lua module and doesn't reliably honor the INSTALL_LIB command-line
-# override across the top-level → src/Makefile recursion, so on multilib
-# distros (e.g. x86_64 RHEL where %{_libdir} = /usr/lib64) the .so lands
-# at %{_prefix}/lib instead of %{_libdir}. Relocate it to the correct
-# arch libdir manually and clean up the wrong-libdir copy if present.
+# Upstream's install-lua-module hardcodes PREFIX/lib for the new shared
+# Lua module and does not reliably honor the INSTALL_LIB command-line
+# override across the top-level -> src/Makefile recursion, so on multilib
+# distros (x86_64 RHEL where libdir is lib64) the .so lands in lib
+# instead of lib64. Relocate it to the correct arch libdir manually and
+# clean up the wrong-libdir copy if present.
 install -Dm0644 src/modules/lua/libvalkeylua.so %{buildroot}%{_libdir}/libvalkeylua.so
 rm -f %{buildroot}%{_prefix}/lib/libvalkeylua.so
 
 # Strip the leaked build-time RPATH from binaries and the lua module.
-# Upstream 9.1's src/Makefile bakes -Wl,-rpath,$(PREFIX)/lib:$(current_dir)/modules/lua
-# into every binary built when BUILD_LUA != no. The first entry is unnecessary
-# (libvalkeylua.so lives in %{_libdir} which is in glibc's default search
-# path) and the second entry leaks the absolute build directory, which trips
-# both check-buildroot and lintian binary-or-shlib-defines-rpath warnings.
+# Upstream 9.1's src/Makefile bakes -Wl,-rpath,PREFIX/lib:BUILDDIR/modules/lua
+# into every binary built when BUILD_LUA is not "no". The first entry is
+# unnecessary (libvalkeylua.so lives in the arch libdir which is in glibc's
+# default search path) and the second entry leaks the absolute build
+# directory, which trips both check-buildroot and lintian rpath warnings.
 chrpath -d %{buildroot}%{_bindir}/%{valkey_name}-server
 chrpath -d %{buildroot}%{_bindir}/%{valkey_name}-cli
 chrpath -d %{buildroot}%{_bindir}/%{valkey_name}-benchmark

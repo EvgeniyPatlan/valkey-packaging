@@ -189,12 +189,22 @@ EOF
         log_info "Downloading packaging scripts from github"
         git clone https://github.com/EvgeniyPatlan/valkey-packaging.git packaging
 
-        # Checkout the correct branch inside the packaging repo
-        if [[ -n "$BRANCH" ]]; then
+        # Check out the packaging branch matching the package version, NOT the
+        # upstream Valkey branch. The packaging repo and the upstream Valkey
+        # repo have different branch names: upstream uses release branches
+        # like "9.1" while the packaging repo uses "9.1.0" (the full version).
+        # Using $BRANCH for both was a long-standing bug — when --branch=9.1
+        # was passed, this would try to git checkout 9.1 in the packaging
+        # repo (which has no such branch) and either abort the build or
+        # silently leave the clone on the default branch with a stale spec.
+        local packaging_branch="${PACKAGING_BRANCH:-$VERSION}"
+        if [[ -n "$packaging_branch" ]]; then
             cd packaging || die "Cannot cd to packaging"
             git reset --hard
             git clean -xdf
-            git checkout "$BRANCH"
+            if ! git checkout "$packaging_branch"; then
+                log_warn "Packaging branch '$packaging_branch' not found; staying on default branch"
+            fi
             cd ..
         fi
 
@@ -292,7 +302,7 @@ install_deps_rpm() {
         zypper install -y \
             rpm-build rpmdevtools gcc make wget tar gzip git \
             jemalloc-devel libopenssl-devel pkg-config \
-            python3 tcl procps \
+            python3 tcl procps chrpath \
             systemd-devel systemd libsystemd0 \
             sysuser-shadow sysuser-tools
 
@@ -331,7 +341,7 @@ install_deps_rpm() {
         $pkg_mgr install -y \
             rpm-build rpmdevtools gcc make wget tar gzip git \
             jemalloc-devel openssl openssl-devel pkgconfig \
-            python3 tcl procps-ng \
+            python3 tcl procps-ng chrpath \
             systemd-devel systemd-rpm-macros
 
         # Documentation deps (optional)
@@ -349,7 +359,7 @@ install_deps_deb() {
     # Core build toolchain
     DEBIAN_FRONTEND=noninteractive apt-get -y install \
         build-essential debhelper devscripts dh-exec dpkg-dev \
-        fakeroot ca-certificates lsb-release \
+        fakeroot ca-certificates lsb-release chrpath \
         git wget curl tar gzip make gcc
 
     # Valkey build dependencies — try all at once, fall back to individual

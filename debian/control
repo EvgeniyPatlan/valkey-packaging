@@ -3,6 +3,7 @@ Section: database
 Priority: optional
 Maintainer: Evgeniy Patlan <evgeniy.patlan@percona.com>
 Build-Depends:
+ chrpath,
  dh-exec,
  libhiredis-dev,
  libjemalloc-dev [linux-any],

@@ -66,8 +66,18 @@ override_dh_auto_install:
 	install -D -m 0755 src/valkey-benchmark debian/tmp/usr/bin/valkey-benchmark
 	# Lua scripting engine (new in 9.1): valkey-server is compiled with
 	# -DLUA_ENABLED -DLUA_LIB=libvalkeylua.so and dlopens this file at
-	# runtime via its baked RPATH ($(PREFIX)/lib = /usr/lib).
+	# runtime. We install it to /usr/lib (a default loader search path on
+	# Debian/Ubuntu after ldconfig) and strip the leaked RPATH below.
 	install -D -m 0644 src/modules/lua/libvalkeylua.so debian/tmp/usr/lib/libvalkeylua.so
+	# Strip the build-time RPATH that upstream 9.1+ bakes into binaries
+	# via -Wl,-rpath,$(PREFIX)/lib:$(current_dir)/modules/lua. The first
+	# entry is unnecessary (libvalkeylua.so is in /usr/lib which is in
+	# the default loader search path) and the second leaks the absolute
+	# build directory which lintian/dpkg-shlibdeps reject.
+	chrpath -d debian/tmp/usr/bin/valkey-server
+	chrpath -d debian/tmp/usr/bin/valkey-cli
+	chrpath -d debian/tmp/usr/bin/valkey-benchmark
+	chrpath -d debian/tmp/usr/lib/libvalkeylua.so 2>/dev/null || true
 	# valkey-check-aof and valkey-check-rdb are the same binary as valkey-server
 	# (hardlinks in the source tree). Install as symlinks to avoid duplicate
 	# .build-id debug files that cause dbgsym package conflicts.
