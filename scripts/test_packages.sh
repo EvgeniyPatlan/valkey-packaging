@@ -410,7 +410,7 @@ install_percona_release_rpm() {
 install_from_repo_deb() {
     section_header "Installing from Percona repo (deb, channel=$REPO_CHANNEL)"
     apt-get update -qq
-    apt-get install -y -qq wget gnupg2 lsb-release curl
+    apt-get install -y -qq wget gnupg2 lsb-release curl libssl
     install_percona_release_deb
     percona-release enable valkey-9.0 "$REPO_CHANNEL"
     apt-get update -qq
@@ -429,7 +429,7 @@ install_from_repo_rpm() {
     install_percona_release_rpm
     percona-release enable valkey-9.0 "$REPO_CHANNEL"
     yum install -y percona-valkey percona-valkey-compat-redis \
-        percona-valkey-compat-redis-devel percona-valkey-devel
+        percona-valkey-compat-redis-devel percona-valkey-devel openssl
     # Capture installed package names and versions
     while IFS= read -r line; do
         [[ -n "$line" ]] && INSTALLED_PKGS+=("$line")
