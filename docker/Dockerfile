@@ -5,12 +5,12 @@ LABEL org.opencontainers.image.authors="info@percona.com" \
       org.opencontainers.image.vendor="Percona" \
       org.opencontainers.image.title="Percona Valkey" \
       org.opencontainers.image.description="Percona Valkey image built from Percona RPM package" \
-      org.opencontainers.image.version="9.0.3"
+      org.opencontainers.image.version="9.1.0"
 
 RUN microdnf -y update; \
     microdnf -y install glibc-langpack-en
 
-ENV VALKEY_VERSION=9.0.3
+ENV VALKEY_VERSION=9.1.0
 
 ARG REPO_CHANNEL=testing
 
@@ -28,7 +28,7 @@ RUN set -ex; \
     rm -rf "$GNUPGHOME" /tmp/percona-release.rpm; \
     rpm --import /etc/pki/rpm-gpg/PERCONA-PACKAGING-KEY; \
     percona-release disable all; \
-    percona-release enable valkey-9.0 ${REPO_CHANNEL}; \
+    percona-release enable valkey-91 ${REPO_CHANNEL}; \
     microdnf -y install \
         tar \
         procps-ng \

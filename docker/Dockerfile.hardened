@@ -20,7 +20,7 @@ RUN set -eux; \
 	chown valkey:valkey /var/lib/valkey; \
 	wget -q -O /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb; \
 	dpkg -i /tmp/percona-release.deb; \
-	percona-release enable valkey-9.0 ${REPO_CHANNEL}; \
+	percona-release enable valkey-91 ${REPO_CHANNEL}; \
 	apt-get update; \
 	apt-get install -y --no-install-recommends \
 		percona-valkey-server \
@@ -68,13 +68,13 @@ RUN chmod 755 /runtime/usr/local/bin/docker-entrypoint.sh
 
 FROM dhi.io/debian-base:trixie
 
-ENV VALKEY_VERSION=9.0.3
+ENV VALKEY_VERSION=9.1.0
 
 LABEL org.opencontainers.image.source="https://github.com/valkey-io/valkey" \
       org.opencontainers.image.vendor="Percona" \
       org.opencontainers.image.title="Valkey (Hardened)" \
       org.opencontainers.image.description="Hardened Valkey image built on Docker Hardened Image (DHI)" \
-      org.opencontainers.image.version="9.0.3" \
+      org.opencontainers.image.version="9.1.0" \
       org.opencontainers.image.base.name="dhi.io/debian-base:trixie"
 
 # Copy passwd/group entries for valkey user

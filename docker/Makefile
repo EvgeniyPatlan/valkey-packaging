@@ -1,7 +1,7 @@
 .PHONY: build build-hardened build-rpm run stop clean logs test test-hardened test-rpm help all
 
 IMAGE_NAME := perconalab/valkey
-VALKEY_VERSION := 9.0.3
+VALKEY_VERSION := 9.1.0
 REPO_CHANNEL ?= experimental
 
 TAG_HARDENED := $(VALKEY_VERSION)-hardened
