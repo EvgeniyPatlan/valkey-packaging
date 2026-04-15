@@ -1,27 +1,163 @@
-Source: valkey
+Source: percona-valkey
 Section: database
 Priority: optional
 Maintainer: Evgeniy Patlan <evgeniy.patlan@percona.com>
-Build-Depends: debhelper (>= 9), make, gcc, pkg-config, libsystemd-dev, openssl
-Standards-Version: 4.1.4
+Build-Depends:
+ chrpath,
+ dh-exec,
+ libhiredis-dev,
+ libjemalloc-dev [linux-any],
+ liblua5.1-dev,
+ liblzf-dev,
+ libssl-dev (>= 1.1.1),
+ libsystemd-dev [linux-any],
+ lua-bitop-dev,
+ lua-cjson-dev,
+ openssl <!nocheck>,
+ pkgconf,
+ procps <!nocheck>,
+ tcl <!nocheck>,
+ tcl-tls <!nocheck>,
+ pandoc <!nodoc>,
+ python3 <!nodoc>,
+ python3-yaml <!nodoc>,
+ wget <!nodoc>
+Standards-Version: 4.7.2
 Homepage: https://valkey.io
+Rules-Requires-Root: no
 
-Package: valkey
+Package: percona-valkey-server
+Provides: valkey, valkey-server
+Replaces: valkey-server
+Conflicts: valkey-server
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, logrotate
-Conflicts: redis
-Description: A persistent key-value database
- Valkey is an advanced key-value store described as a data structure server.
+Pre-Depends:
+ ${misc:Pre-Depends}
+Depends:
+ percona-valkey-tools (= ${binary:Version}),
+ lsb-base (>= 3.2-14),
+ ${misc:Depends},
+ ${shlibs:Depends}
+Recommends:
+ logrotate
+Suggests:
+ percona-valkey-doc,
+ percona-valkey-compat-redis
+Description: Persistent key-value database with network interface
+ Valkey is an advanced key-value store. It is often referred to as a data
+ structure server since keys can contain strings, hashes, lists, sets and
+ sorted sets.
+ .
+ You can run atomic operations on these types, like appending to a string;
+ incrementing the value in a hash; pushing to a list; computing set
+ intersection, union and difference; or getting the member with highest
+ ranking in a sorted set.
+ .
+ In order to achieve its outstanding performance, Valkey works with an
+ in-memory dataset. Depending on your use case, you can persist it either
+ by dumping the dataset to disk every once in a while, or by appending
+ each command to a log.
+ .
+ Valkey also supports trivial-to-setup primary-replica replication, with very
+ fast non-blocking first synchronization, auto-reconnection on net split
+ and so forth.
+ .
+ Other features include Transactions, Pub/Sub, Lua scripting, Keys with a
+ limited time-to-live, and configuration settings to make Valkey behave like
+ a cache.
 
-Package: valkey-devel
+Package: percona-valkey-sentinel
+Provides: valkey-sentinel
+Replaces: valkey-sentinel
+Conflicts: valkey-sentinel
 Architecture: any
-Depends: valkey (= ${binary:Version}), ${misc:Depends}
-Description: Development header for Valkey module development
- Header file required for building loadable Valkey modules.
+Pre-Depends:
+ ${misc:Pre-Depends}
+Depends:
+ percona-valkey-tools (= ${binary:Version}),
+ lsb-base (>= 3.2-14),
+ ${misc:Depends},
+ ${shlibs:Depends}
+Recommends:
+ logrotate
+Description: Persistent key-value database with network interface (monitoring)
+ Valkey is an advanced key-value store.
+ .
+ This package contains the Valkey Sentinel monitoring software.
 
-Package: valkey-compat
+Package: percona-valkey-tools
+Provides: valkey-tools
+Replaces: valkey-tools
+Conflicts: valkey-tools
 Architecture: any
-Depends: valkey (= ${binary:Version}), ${misc:Depends}
-Description: Config conversion scripts from redis to valkey
- Provides scripts to convert configurations from Redis to Valkey.
+Depends:
+ adduser,
+ ${misc:Depends},
+ ${shlibs:Depends}
+Suggests:
+ ruby-redis
+Description: Persistent key-value database with network interface (client)
+ Valkey is an advanced key-value store.
+ .
+ This package contains the command line client and other tools.
 
+Package: percona-valkey-dev
+Provides: valkey-dev
+Replaces: valkey-dev
+Conflicts: valkey-dev
+Section: libdevel
+Architecture: any
+Multi-Arch: same
+Depends:
+ ${misc:Depends}
+Description: Development files for Valkey modules
+ Valkey is an advanced key-value store.
+ .
+ This package contains the header files needed to develop Valkey modules.
+ Includes valkeymodule.h and RPM macros for module packaging.
+
+Package: percona-valkey-compat-redis
+Provides: valkey-compat-redis, redis-server, redis-tools
+Replaces: valkey-compat-redis, redis-server (<< 7.4~), redis-tools (<< 7.4~)
+Conflicts: valkey-compat-redis, redis-server (<< 7.4~), redis-tools (<< 7.4~)
+Architecture: any
+Depends:
+ percona-valkey-server (>= ${source:Version}),
+ percona-valkey-tools (>= ${source:Version}),
+ ${misc:Depends}
+Description: Redis compatibility symlinks for Valkey
+ This package provides compatibility symlinks and wrappers to enable
+ easy conversion from Redis to Valkey. It provides redis-* command names
+ that redirect to the equivalent valkey-* commands.
+ .
+ This is a transitional package to help migrate from Redis to Valkey.
+
+Package: percona-valkey-compat-redis-dev
+Provides: valkey-compat-redis-dev, redis-dev
+Replaces: valkey-compat-redis-dev, redis-dev (<< 7.4~)
+Conflicts: valkey-compat-redis-dev, redis-dev (<< 7.4~)
+Section: libdevel
+Architecture: any
+Multi-Arch: same
+Depends:
+ percona-valkey-dev (>= ${source:Version}),
+ ${misc:Depends}
+Description: Redis API compatibility headers for Valkey modules
+ This package provides the legacy redismodule.h header for building
+ Valkey modules with the Redis API.
+ .
+ This is a transitional package to help migrate Redis modules to Valkey.
+
+Package: percona-valkey-doc
+Provides: valkey-doc
+Replaces: valkey-doc
+Conflicts: valkey-doc
+Section: doc
+Architecture: any
+Depends:
+ ${misc:Depends}
+Build-Profiles: <!nodoc>
+Description: Documentation for Valkey
+ Valkey is an advanced key-value store.
+ .
+ This package contains the documentation and additional man pages.

@@ -1,0 +1,5 @@
+etc/valkey/valkey.conf
+usr/bin/valkey-server
+usr/bin/valkey-check-aof
+usr/bin/valkey-check-rdb
+usr/lib/libvalkeylua.so

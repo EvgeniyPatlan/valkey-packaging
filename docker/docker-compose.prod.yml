@@ -1,0 +1,89 @@
+version: '3.8'
+
+# Production example with password from Docker secrets or .env file
+# Usage:
+#   1. Create .env file with: VALKEY_PASSWORD=your_strong_password
+#   2. Run: docker-compose -f docker-compose.prod.yml up -d
+
+services:
+  valkey:
+    build:
+      context: .
+      dockerfile: Dockerfile.hardened
+      args:
+        REPO_CHANNEL: ${REPO_CHANNEL:-testing}
+    image: percona/valkey:9.0.3-hardened
+    container_name: valkey-prod
+    hostname: valkey
+    restart: unless-stopped
+    
+    security_opt:
+      - no-new-privileges:true
+      - apparmor=docker-default
+      - seccomp=seccomp-valkey.json
+    
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    
+    read_only: true
+    
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=64m
+      - /run/valkey:noexec,nosuid,nodev,size=32m
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    pids_limit: 200
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 40000
+        hard: 40000
+    
+    # Bind to localhost only for security
+    ports:
+      - "127.0.0.1:6379:6379"
+    
+    networks:
+      - valkey-net
+    
+    volumes:
+      - valkey-data:/data:rw
+    
+    # Configure via environment variables (from .env file)
+    environment:
+      - TZ=UTC
+      - VALKEY_PASSWORD=${VALKEY_PASSWORD}  # Load from .env or secrets
+      - VALKEY_MAXMEMORY=1gb
+    
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a $VALKEY_PASSWORD ping || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+networks:
+  valkey-net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-valkey
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  valkey-data:
+    driver: local
