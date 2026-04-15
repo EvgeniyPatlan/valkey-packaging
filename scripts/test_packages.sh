@@ -211,6 +211,107 @@ wait_for_service() {
 }
 
 ###############################################################################
+# Operational test infrastructure
+###############################################################################
+# Ports reserved for operational tests (above 7300 to avoid conflicts)
+PORT_REPL_PRIMARY=7379
+PORT_REPL_REPLICA1=7380
+PORT_REPL_REPLICA2=7381
+PORT_SENT_PRIMARY=7382
+PORT_SENT_REPLICA=7383
+PORT_SENTINEL=26382
+PORT_CLUSTER_BASE=7384   # uses 7384-7389 (6 nodes)
+PORT_TLS_PLAIN=7391      # plain companion port for TLS server startup check
+PORT_TLS=7390
+PORT_ACL=7392
+PORT_PERSIST_RDB=7393
+PORT_PERSIST_AOF=7394
+PORT_CFG_RELOAD=7395
+PORT_MULTI1=7396
+PORT_MULTI2=7397
+PORT_PUBSUB=7398
+PORT_STREAMS=7399
+PORT_TXN=7400
+PORT_LUA=7401
+PORT_KEYSPACE=7402
+PORT_UNIX_TCP=7403       # companion TCP port for unix socket server
+PORT_EVICTION=7404
+PORT_SLOWLOG=7405
+PORT_PERF=7406
+PORT_MODULE=7407
+
+TEST_TMP_DIR=""
+LAST_TEST_PID=""
+
+setup_operational_tests() {
+    TEST_TMP_DIR="$(mktemp -d /tmp/valkey-optest-XXXXXX)"
+    printf "\n  ${CYAN}Operational test temp dir:${RESET} %s\n" "$TEST_TMP_DIR"
+}
+
+cleanup_operational_tests() {
+    if [[ -n "$TEST_TMP_DIR" ]] && [[ -d "$TEST_TMP_DIR" ]]; then
+        rm -rf "$TEST_TMP_DIR"
+    fi
+}
+
+# start_test_server <name> <port> [extra valkey-server args...]
+# Starts a daemonized valkey-server in $TEST_TMP_DIR/<name>/.
+# Sets LAST_TEST_PID to the server PID.  Returns 1 if startup times out.
+start_test_server() {
+    local name="$1" port="$2"
+    shift 2
+    local dir="$TEST_TMP_DIR/$name"
+    mkdir -p "$dir"
+    valkey-server \
+        --port "$port" \
+        --daemonize yes \
+        --logfile "$dir/valkey.log" \
+        --dir "$dir" \
+        --pidfile "$dir/valkey.pid" \
+        --loglevel warning \
+        "$@" >/dev/null 2>&1 || true
+
+    local i=0
+    while [[ $i -lt 40 ]]; do
+        if valkey-cli -p "$port" PING >/dev/null 2>&1; then
+            LAST_TEST_PID="$(cat "$dir/valkey.pid" 2>/dev/null || true)"
+            return 0
+        fi
+        sleep 0.25
+        i=$((i + 1))
+    done
+    echo "  WARNING: server '$name' on port $port did not respond within 10s" >&2
+    cat "$dir/valkey.log" 2>/dev/null | tail -5 >&2 || true
+    return 1
+}
+
+# stop_test_server <name> <port>
+stop_test_server() {
+    local name="$1" port="$2"
+    valkey-cli -p "$port" SHUTDOWN NOSAVE >/dev/null 2>&1 || true
+    sleep 0.3
+    local pid_file="$TEST_TMP_DIR/$name/valkey.pid"
+    if [[ -f "$pid_file" ]]; then
+        local pid
+        pid="$(cat "$pid_file" 2>/dev/null || true)"
+        [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
+    fi
+}
+
+# vcli <port> [args...]  — shorthand valkey-cli wrapper
+vcli() {
+    local port="$1"; shift
+    valkey-cli -p "$port" "$@" 2>&1
+}
+
+# info_field <port> <field>  — extract a single field from INFO all
+info_field() {
+    local port="$1" field="$2"
+    valkey-cli -p "$port" INFO all 2>/dev/null \
+        | grep -i "^${field}:" | head -1 | cut -d: -f2 | tr -d '[:space:]'
+}
+
+###############################################################################
 # OS detection
 ###############################################################################
 detect_os() {
@@ -1121,6 +1222,1404 @@ test_clean_removal() {
 }
 
 ###############################################################################
+# Operational smoke tests
+###############################################################################
+
+# ---------------------------------------------------------------------------
+# Replication
+# ---------------------------------------------------------------------------
+test_op_replication() {
+    section_header "Operational Test: Replication"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping replication tests"
+        return
+    fi
+
+    # Start primary
+    if ! start_test_server "repl-primary" "$PORT_REPL_PRIMARY"; then
+        fail "replication: start primary on port $PORT_REPL_PRIMARY"
+        return
+    fi
+    pass "replication: primary started on port $PORT_REPL_PRIMARY"
+
+    # Start two replicas
+    local replica_started=0
+    for port_var in PORT_REPL_REPLICA1 PORT_REPL_REPLICA2; do
+        local port="${!port_var}"
+        local name="repl-replica-$port"
+        if start_test_server "$name" "$port" \
+                --replicaof 127.0.0.1 "$PORT_REPL_PRIMARY"; then
+            pass "replication: replica started on port $port"
+            replica_started=$((replica_started + 1))
+        else
+            fail "replication: replica started on port $port"
+        fi
+    done
+
+    if [[ $replica_started -eq 0 ]]; then
+        stop_test_server "repl-primary" "$PORT_REPL_PRIMARY"
+        return
+    fi
+
+    sleep 1  # allow replication handshake
+
+    # Check primary role
+    local role
+    role="$(info_field "$PORT_REPL_PRIMARY" "role")"
+    if [[ "$role" == "master" ]]; then
+        pass "replication: primary reports role:master"
+    else
+        fail "replication: primary reports role:master (got: $role)"
+    fi
+
+    # Check replica roles and link status
+    for port in "$PORT_REPL_REPLICA1" "$PORT_REPL_REPLICA2"; do
+        local r_role link_status
+        r_role="$(info_field "$port" "role")"
+        link_status="$(info_field "$port" "master_link_status")"
+        if [[ "$r_role" == "slave" ]]; then
+            pass "replication: replica $port reports role:slave"
+        else
+            fail "replication: replica $port reports role:slave (got: $r_role)"
+        fi
+        if [[ "$link_status" == "up" ]]; then
+            pass "replication: replica $port master_link_status:up"
+        else
+            fail "replication: replica $port master_link_status:up (got: $link_status)"
+        fi
+    done
+
+    # Write on primary, read on replica
+    vcli "$PORT_REPL_PRIMARY" SET __repl_test__ "replicated_value" >/dev/null
+    sleep 0.5
+    local repl_val
+    repl_val="$(vcli "$PORT_REPL_REPLICA1" GET __repl_test__)"
+    if [[ "$repl_val" == "replicated_value" ]]; then
+        pass "replication: data written on primary readable on replica"
+    else
+        fail "replication: data written on primary readable on replica (got: $repl_val)"
+    fi
+
+    # WAIT — ensure replica is caught up
+    local wait_result
+    wait_result="$(vcli "$PORT_REPL_PRIMARY" WAIT 1 2000)"
+    if [[ "$wait_result" -ge 1 ]] 2>/dev/null; then
+        pass "replication: WAIT confirmed at least 1 replica acknowledged"
+    else
+        fail "replication: WAIT returned $wait_result (expected >= 1)"
+    fi
+
+    # Replica is read-only — writes must be rejected
+    local write_err
+    write_err="$(vcli "$PORT_REPL_REPLICA1" SET __readonly_test__ "x")"
+    if [[ "$write_err" == *"READONLY"* ]]; then
+        pass "replication: replica correctly rejects writes (READONLY)"
+    else
+        fail "replication: replica correctly rejects writes (got: $write_err)"
+    fi
+
+    # Promote replica (REPLICAOF NO ONE)
+    vcli "$PORT_REPL_REPLICA1" REPLICAOF NO ONE >/dev/null
+    sleep 0.5
+    local promoted_role
+    promoted_role="$(info_field "$PORT_REPL_REPLICA1" "role")"
+    if [[ "$promoted_role" == "master" ]]; then
+        pass "replication: replica promoted to master via REPLICAOF NO ONE"
+    else
+        fail "replication: replica promoted to master via REPLICAOF NO ONE (got: $promoted_role)"
+    fi
+
+    # Cleanup
+    stop_test_server "repl-primary"    "$PORT_REPL_PRIMARY"
+    stop_test_server "repl-replica-$PORT_REPL_REPLICA1" "$PORT_REPL_REPLICA1"
+    stop_test_server "repl-replica-$PORT_REPL_REPLICA2" "$PORT_REPL_REPLICA2"
+}
+
+# ---------------------------------------------------------------------------
+# Sentinel Failover
+# ---------------------------------------------------------------------------
+test_op_sentinel_failover() {
+    section_header "Operational Test: Sentinel Failover"
+
+    if ! command -v valkey-server &>/dev/null || ! command -v valkey-sentinel &>/dev/null; then
+        skip "valkey-server/sentinel not in PATH — skipping sentinel tests"
+        return
+    fi
+
+    local primary_port="$PORT_SENT_PRIMARY"
+    local replica_port="$PORT_SENT_REPLICA"
+    local sentinel_port="$PORT_SENTINEL"
+    local sentinel_dir="$TEST_TMP_DIR/sentinel"
+    mkdir -p "$sentinel_dir"
+
+    # Start primary
+    if ! start_test_server "sent-primary" "$primary_port"; then
+        fail "sentinel: start primary"
+        return
+    fi
+    pass "sentinel: primary started on port $primary_port"
+
+    # Start replica
+    if ! start_test_server "sent-replica" "$replica_port" \
+            --replicaof 127.0.0.1 "$primary_port"; then
+        fail "sentinel: start replica"
+        stop_test_server "sent-primary" "$primary_port"
+        return
+    fi
+    pass "sentinel: replica started on port $replica_port"
+
+    sleep 1
+
+    # Write a sentinel config
+    local sentinel_conf="$sentinel_dir/sentinel.conf"
+    cat >"$sentinel_conf" <<EOF
+port $sentinel_port
+daemonize yes
+logfile $sentinel_dir/sentinel.log
+pidfile $sentinel_dir/sentinel.pid
+dir $sentinel_dir
+sentinel monitor mymaster 127.0.0.1 $primary_port 1
+sentinel down-after-milliseconds mymaster 3000
+sentinel failover-timeout mymaster 10000
+sentinel parallel-syncs mymaster 1
+EOF
+
+    valkey-sentinel "$sentinel_conf" >/dev/null 2>&1 || true
+    sleep 2
+
+    # Verify sentinel is up
+    local s_ping
+    s_ping="$(vcli "$sentinel_port" PING)"
+    if [[ "$s_ping" == "PONG" ]]; then
+        pass "sentinel: sentinel process responded to PING"
+    else
+        fail "sentinel: sentinel process responded to PING (got: $s_ping)"
+        stop_test_server "sent-primary" "$primary_port"
+        stop_test_server "sent-replica"  "$replica_port"
+        return
+    fi
+
+    # Verify sentinel knows the master
+    local master_addr
+    master_addr="$(valkey-cli -p "$sentinel_port" SENTINEL get-master-addr-by-name mymaster 2>&1 | head -1)"
+    if [[ "$master_addr" == "127.0.0.1" ]]; then
+        pass "sentinel: sentinel reports master address"
+    else
+        fail "sentinel: sentinel reports master address (got: $master_addr)"
+    fi
+
+    # Kill primary to trigger failover
+    echo "  Killing primary to trigger failover..."
+    local primary_pid
+    primary_pid="$(cat "$TEST_TMP_DIR/sent-primary/valkey.pid" 2>/dev/null || true)"
+    [[ -n "$primary_pid" ]] && kill -9 "$primary_pid" 2>/dev/null || true
+
+    # Wait for sentinel to elect a new master (up to 20s)
+    local new_master_port="" elapsed=0
+    while [[ $elapsed -lt 20 ]]; do
+        local addr_line
+        addr_line="$(valkey-cli -p "$sentinel_port" SENTINEL get-master-addr-by-name mymaster 2>/dev/null | tail -1 | tr -d '\r')" || true
+        if [[ "$addr_line" =~ ^[0-9]+$ ]] && [[ "$addr_line" != "$primary_port" ]]; then
+            new_master_port="$addr_line"
+            break
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    if [[ -n "$new_master_port" ]] && [[ "$new_master_port" != "$primary_port" ]]; then
+        pass "sentinel: failover elected new master on port $new_master_port"
+    else
+        fail "sentinel: failover did not elect a new master within 20s"
+    fi
+
+    # Verify new master accepts writes
+    if [[ -n "$new_master_port" ]]; then
+        local write_result
+        write_result="$(vcli "$new_master_port" SET __sentinel_test__ "post_failover" 2>&1)"
+        if [[ "$write_result" == "OK" ]]; then
+            pass "sentinel: new master accepts writes after failover"
+        else
+            fail "sentinel: new master accepts writes after failover (got: $write_result)"
+        fi
+    fi
+
+    # Cleanup sentinel
+    local sentinel_pid
+    sentinel_pid="$(cat "$sentinel_dir/sentinel.pid" 2>/dev/null || true)"
+    [[ -n "$sentinel_pid" ]] && kill "$sentinel_pid" 2>/dev/null || true
+    stop_test_server "sent-replica" "$replica_port"
+}
+
+# ---------------------------------------------------------------------------
+# Cluster Mode
+# ---------------------------------------------------------------------------
+test_op_cluster() {
+    section_header "Operational Test: Cluster Mode"
+
+    if ! command -v valkey-server &>/dev/null || ! command -v valkey-cli &>/dev/null; then
+        skip "valkey-server/cli not in PATH — skipping cluster tests"
+        return
+    fi
+
+    # Check that valkey-cli supports --cluster
+    if ! valkey-cli --cluster help >/dev/null 2>&1; then
+        skip "valkey-cli --cluster not supported — skipping cluster tests"
+        return
+    fi
+
+    local base_port="$PORT_CLUSTER_BASE"
+    local num_nodes=6  # 3 primary + 3 replica
+    local ports=()
+    for ((i=0; i<num_nodes; i++)); do
+        ports+=($((base_port + i)))
+    done
+
+    # Start cluster nodes
+    local started=0
+    for port in "${ports[@]}"; do
+        local name="cluster-$port"
+        if start_test_server "$name" "$port" \
+                --cluster-enabled yes \
+                --cluster-config-file "$TEST_TMP_DIR/cluster-$port/nodes.conf" \
+                --cluster-node-timeout 5000 \
+                --appendonly no; then
+            started=$((started + 1))
+        else
+            fail "cluster: start node on port $port"
+        fi
+    done
+
+    if [[ $started -lt $num_nodes ]]; then
+        fail "cluster: only $started/$num_nodes nodes started"
+        for port in "${ports[@]}"; do
+            stop_test_server "cluster-$port" "$port"
+        done
+        return
+    fi
+    pass "cluster: all $num_nodes nodes started"
+
+    # Create the cluster
+    local host_ports=()
+    for port in "${ports[@]}"; do
+        host_ports+=("127.0.0.1:$port")
+    done
+
+    local create_output
+    create_output="$(printf 'yes\n' | valkey-cli --cluster create "${host_ports[@]}" \
+        --cluster-replicas 1 2>&1)" || true
+
+    if [[ "$create_output" == *"[OK] All 16384 slots covered"* ]]; then
+        pass "cluster: cluster created with all 16384 slots covered"
+    else
+        fail "cluster: cluster creation (output: $(echo "$create_output" | tail -3))"
+        for port in "${ports[@]}"; do
+            stop_test_server "cluster-$port" "$port"
+        done
+        return
+    fi
+
+    sleep 1
+
+    # Verify CLUSTER INFO
+    local cluster_state
+    cluster_state="$(valkey-cli -p "$base_port" CLUSTER INFO 2>/dev/null \
+        | grep '^cluster_state:' | cut -d: -f2 | tr -d '[:space:]')"
+    if [[ "$cluster_state" == "ok" ]]; then
+        pass "cluster: CLUSTER INFO reports cluster_state:ok"
+    else
+        fail "cluster: CLUSTER INFO reports cluster_state:ok (got: $cluster_state)"
+    fi
+
+    local slots_assigned
+    slots_assigned="$(valkey-cli -p "$base_port" CLUSTER INFO 2>/dev/null \
+        | grep '^cluster_slots_assigned:' | cut -d: -f2 | tr -d '[:space:]')"
+    if [[ "$slots_assigned" == "16384" ]]; then
+        pass "cluster: all 16384 slots assigned"
+    else
+        fail "cluster: all 16384 slots assigned (got: $slots_assigned)"
+    fi
+
+    # Write keys that hash to different slots and read them back
+    local write_ok=0 read_ok=0
+    for key in "key1" "key2" "key3"; do
+        local set_result
+        set_result="$(valkey-cli -c -p "$base_port" SET "$key" "val_$key" 2>&1)"
+        [[ "$set_result" == "OK" ]] && write_ok=$((write_ok + 1))
+    done
+    if [[ $write_ok -eq 3 ]]; then
+        pass "cluster: wrote 3 keys across cluster slots"
+    else
+        fail "cluster: wrote 3 keys across cluster slots ($write_ok/3 succeeded)"
+    fi
+
+    for key in "key1" "key2" "key3"; do
+        local get_result
+        get_result="$(valkey-cli -c -p "$base_port" GET "$key" 2>&1)"
+        [[ "$get_result" == "val_$key" ]] && read_ok=$((read_ok + 1))
+    done
+    if [[ $read_ok -eq 3 ]]; then
+        pass "cluster: read 3 keys back correctly"
+    else
+        fail "cluster: read 3 keys back correctly ($read_ok/3 matched)"
+    fi
+
+    # Verify CLUSTER NODES topology
+    local node_count
+    node_count="$(valkey-cli -p "$base_port" CLUSTER NODES 2>/dev/null | wc -l | tr -d '[:space:]')"
+    if [[ "$node_count" -eq $num_nodes ]]; then
+        pass "cluster: CLUSTER NODES shows $num_nodes nodes"
+    else
+        fail "cluster: CLUSTER NODES shows $num_nodes nodes (got: $node_count)"
+    fi
+
+    # Cleanup
+    for port in "${ports[@]}"; do
+        stop_test_server "cluster-$port" "$port"
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Persistence (RDB + AOF)
+# ---------------------------------------------------------------------------
+test_op_persistence() {
+    section_header "Operational Test: Persistence"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping persistence tests"
+        return
+    fi
+
+    # --- RDB ---
+    if start_test_server "persist-rdb" "$PORT_PERSIST_RDB" \
+            --save "" \
+            --dbfilename "dump.rdb"; then
+        pass "persistence: RDB server started"
+    else
+        fail "persistence: RDB server started"
+        return
+    fi
+
+    vcli "$PORT_PERSIST_RDB" SET __rdb_key__ "rdb_value" >/dev/null
+    local bgsave_result
+    bgsave_result="$(vcli "$PORT_PERSIST_RDB" BGSAVE)"
+    if [[ "$bgsave_result" == *"Background saving started"* ]] || [[ "$bgsave_result" == "OK" ]]; then
+        pass "persistence: BGSAVE initiated"
+    else
+        fail "persistence: BGSAVE initiated (got: $bgsave_result)"
+    fi
+
+    # Wait for BGSAVE to complete
+    local i=0
+    while [[ $i -lt 20 ]]; do
+        local bgsave_status
+        bgsave_status="$(info_field "$PORT_PERSIST_RDB" "rdb_bgsave_in_progress")"
+        [[ "$bgsave_status" == "0" ]] && break
+        sleep 0.5
+        i=$((i + 1))
+    done
+
+    local rdb_file="$TEST_TMP_DIR/persist-rdb/dump.rdb"
+    if [[ -f "$rdb_file" ]]; then
+        pass "persistence: RDB dump file created"
+    else
+        fail "persistence: RDB dump file created (not found: $rdb_file)"
+    fi
+
+    stop_test_server "persist-rdb" "$PORT_PERSIST_RDB"
+
+    # Restart and verify data loaded
+    if start_test_server "persist-rdb" "$PORT_PERSIST_RDB" \
+            --save "" \
+            --dbfilename "dump.rdb"; then
+        local rdb_val
+        rdb_val="$(vcli "$PORT_PERSIST_RDB" GET __rdb_key__)"
+        if [[ "$rdb_val" == "rdb_value" ]]; then
+            pass "persistence: RDB data survives server restart"
+        else
+            fail "persistence: RDB data survives server restart (got: $rdb_val)"
+        fi
+    else
+        fail "persistence: RDB server restart"
+    fi
+    stop_test_server "persist-rdb" "$PORT_PERSIST_RDB"
+
+    # --- AOF ---
+    if start_test_server "persist-aof" "$PORT_PERSIST_AOF" \
+            --appendonly yes \
+            --appendfilename "appendonly.aof" \
+            --save ""; then
+        pass "persistence: AOF server started"
+    else
+        fail "persistence: AOF server started"
+        return
+    fi
+
+    vcli "$PORT_PERSIST_AOF" SET __aof_key__ "aof_value" >/dev/null
+    vcli "$PORT_PERSIST_AOF" SET __aof_key2__ "aof_value2" >/dev/null
+
+    # Crash-stop (kill -9) to simulate unclean shutdown
+    local aof_pid
+    aof_pid="$(cat "$TEST_TMP_DIR/persist-aof/valkey.pid" 2>/dev/null || true)"
+    [[ -n "$aof_pid" ]] && kill -9 "$aof_pid" 2>/dev/null || true
+    sleep 0.5
+
+    # Restart — AOF must recover both keys
+    if start_test_server "persist-aof" "$PORT_PERSIST_AOF" \
+            --appendonly yes \
+            --appendfilename "appendonly.aof" \
+            --save ""; then
+        local aof_val aof_val2
+        aof_val="$(vcli "$PORT_PERSIST_AOF" GET __aof_key__)"
+        aof_val2="$(vcli "$PORT_PERSIST_AOF" GET __aof_key2__)"
+        if [[ "$aof_val" == "aof_value" ]] && [[ "$aof_val2" == "aof_value2" ]]; then
+            pass "persistence: AOF data recovered after crash-stop"
+        else
+            fail "persistence: AOF data recovered after crash-stop (got: '$aof_val', '$aof_val2')"
+        fi
+    else
+        fail "persistence: AOF server restart after crash"
+    fi
+
+    # BGREWRITEAOF
+    local rewrite_result
+    rewrite_result="$(vcli "$PORT_PERSIST_AOF" BGREWRITEAOF)"
+    if [[ "$rewrite_result" == *"started"* ]]; then
+        pass "persistence: BGREWRITEAOF initiated"
+    else
+        fail "persistence: BGREWRITEAOF initiated (got: $rewrite_result)"
+    fi
+
+    # Wait for rewrite to finish
+    i=0
+    while [[ $i -lt 20 ]]; do
+        local aof_rewrite_status
+        aof_rewrite_status="$(info_field "$PORT_PERSIST_AOF" "aof_rewrite_in_progress")"
+        [[ "$aof_rewrite_status" == "0" ]] && break
+        sleep 0.5
+        i=$((i + 1))
+    done
+
+    # Restart again to verify data intact after rewrite
+    stop_test_server "persist-aof" "$PORT_PERSIST_AOF"
+    if start_test_server "persist-aof" "$PORT_PERSIST_AOF" \
+            --appendonly yes \
+            --appendfilename "appendonly.aof" \
+            --save ""; then
+        local post_rewrite_val
+        post_rewrite_val="$(vcli "$PORT_PERSIST_AOF" GET __aof_key__)"
+        if [[ "$post_rewrite_val" == "aof_value" ]]; then
+            pass "persistence: data intact after BGREWRITEAOF + restart"
+        else
+            fail "persistence: data intact after BGREWRITEAOF + restart (got: $post_rewrite_val)"
+        fi
+    else
+        fail "persistence: server restart after BGREWRITEAOF"
+    fi
+
+    # Data directory ownership survives restart
+    local dir_owner
+    dir_owner="$(stat -c '%U' "$TEST_TMP_DIR/persist-aof" 2>/dev/null || true)"
+    # Temp dir is owned by whoever ran the test; just check the server can write
+    local aof_file="$TEST_TMP_DIR/persist-aof/appendonly.aof"
+    if [[ -f "$aof_file" ]] || ls "$TEST_TMP_DIR/persist-aof/"*.aof* >/dev/null 2>&1; then
+        pass "persistence: AOF file(s) present after restart"
+    else
+        fail "persistence: AOF file(s) present after restart"
+    fi
+
+    stop_test_server "persist-aof" "$PORT_PERSIST_AOF"
+}
+
+# ---------------------------------------------------------------------------
+# ACL
+# ---------------------------------------------------------------------------
+test_op_acl() {
+    section_header "Operational Test: ACL"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping ACL tests"
+        return
+    fi
+
+    if ! start_test_server "acl" "$PORT_ACL"; then
+        fail "ACL: server started"
+        return
+    fi
+    pass "ACL: server started"
+
+    # Create a read-only user
+    local acl_add
+    acl_add="$(vcli "$PORT_ACL" ACL SETUSER readonly_user on '>readpass' '~*' '+GET' '+PING')"
+    if [[ "$acl_add" == "OK" ]]; then
+        pass "ACL: read-only user created"
+    else
+        fail "ACL: read-only user created (got: $acl_add)"
+    fi
+
+    # Seed a key as default user
+    vcli "$PORT_ACL" SET __acl_key__ "acl_val" >/dev/null
+
+    # Read-only user can GET
+    local ro_get
+    ro_get="$(valkey-cli -p "$PORT_ACL" -a readpass --user readonly_user GET __acl_key__ 2>&1 | grep -v Warning)"
+    if [[ "$ro_get" == "acl_val" ]]; then
+        pass "ACL: read-only user can GET"
+    else
+        fail "ACL: read-only user can GET (got: $ro_get)"
+    fi
+
+    # Read-only user cannot SET
+    local ro_set
+    ro_set="$(valkey-cli -p "$PORT_ACL" -a readpass --user readonly_user SET __acl_key__ "x" 2>&1 | grep -v Warning)"
+    if [[ "$ro_set" == *"NOPERM"* ]]; then
+        pass "ACL: read-only user correctly blocked from SET (NOPERM)"
+    else
+        fail "ACL: read-only user correctly blocked from SET (got: $ro_set)"
+    fi
+
+    # Key-prefix scoped user (can only access cache:* keys)
+    vcli "$PORT_ACL" ACL SETUSER prefix_user on '>prefixpass' '~cache:*' '+SET' '+GET' '+PING' >/dev/null
+
+    local prefix_set
+    prefix_set="$(valkey-cli -p "$PORT_ACL" -a prefixpass --user prefix_user SET "cache:item1" "v1" 2>&1 | grep -v Warning)"
+    if [[ "$prefix_set" == "OK" ]]; then
+        pass "ACL: prefix user can write to allowed key prefix"
+    else
+        fail "ACL: prefix user can write to allowed key prefix (got: $prefix_set)"
+    fi
+
+    local cross_prefix
+    cross_prefix="$(valkey-cli -p "$PORT_ACL" -a prefixpass --user prefix_user SET "other:item1" "v1" 2>&1 | grep -v Warning)"
+    if [[ "$cross_prefix" == *"NOPERM"* ]]; then
+        pass "ACL: prefix user blocked from cross-prefix key access"
+    else
+        fail "ACL: prefix user blocked from cross-prefix key access (got: $cross_prefix)"
+    fi
+
+    # Wrong password rejected
+    local bad_auth
+    bad_auth="$(valkey-cli -p "$PORT_ACL" -a wrongpass --user readonly_user PING 2>&1 | grep -v Warning)"
+    if [[ "$bad_auth" == *"WRONGPASS"* ]] || [[ "$bad_auth" == *"NOAUTH"* ]] || [[ "$bad_auth" == *"invalid"* ]]; then
+        pass "ACL: wrong password is rejected"
+    else
+        fail "ACL: wrong password is rejected (got: $bad_auth)"
+    fi
+
+    # ACL LOG should capture denied commands
+    # Trigger a denial
+    valkey-cli -p "$PORT_ACL" -a readpass --user readonly_user SET __acl_key__ "x" >/dev/null 2>&1 || true
+    local acl_log
+    acl_log="$(vcli "$PORT_ACL" ACL LOG)"
+    if [[ "$acl_log" != "(empty array)" ]] && [[ "$acl_log" != "" ]]; then
+        pass "ACL: ACL LOG captured denied command"
+    else
+        fail "ACL: ACL LOG captured denied command (log empty)"
+    fi
+
+    # ACL config survives restart — save to aclfile and restart
+    local aclfile="$TEST_TMP_DIR/acl/users.acl"
+    vcli "$PORT_ACL" ACL SAVE >/dev/null 2>&1 || true
+    # Check via CONFIG SET if aclfile is supported
+    vcli "$PORT_ACL" CONFIG SET aclfile "$aclfile" >/dev/null 2>&1 || true
+    vcli "$PORT_ACL" ACL SAVE >/dev/null 2>&1 || true
+
+    stop_test_server "acl" "$PORT_ACL"
+
+    if start_test_server "acl" "$PORT_ACL" --aclfile "$aclfile" 2>/dev/null; then
+        local acl_list
+        acl_list="$(vcli "$PORT_ACL" ACL LIST)"
+        if [[ "$acl_list" == *"readonly_user"* ]]; then
+            pass "ACL: user config survives service restart (loaded from aclfile)"
+        else
+            fail "ACL: user config survives service restart (readonly_user not in ACL LIST)"
+        fi
+        stop_test_server "acl" "$PORT_ACL"
+    else
+        skip "ACL: aclfile restart test skipped (server failed to start with aclfile)"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# TLS
+# ---------------------------------------------------------------------------
+test_op_tls() {
+    section_header "Operational Test: TLS"
+
+    if ! command -v valkey-server &>/dev/null || ! command -v openssl &>/dev/null; then
+        skip "valkey-server or openssl not available — skipping TLS tests"
+        return
+    fi
+
+    # Check that TLS support is compiled in
+    if ! valkey-server --tls-port 0 --port 0 --help 2>&1 | grep -q 'tls'; then
+        # Try a quick probe
+        local tls_check
+        tls_check="$(valkey-server --version 2>&1)"
+        if [[ "$tls_check" != *"tls"* ]] && ! valkey-cli --tls --help >/dev/null 2>&1; then
+            skip "TLS support not compiled in — skipping TLS tests"
+            return
+        fi
+    fi
+
+    local tls_dir="$TEST_TMP_DIR/tls"
+    mkdir -p "$tls_dir"
+
+    # Generate self-signed CA + server cert
+    openssl genrsa -out "$tls_dir/ca.key" 2048 >/dev/null 2>&1
+    openssl req -new -x509 -days 1 -key "$tls_dir/ca.key" \
+        -out "$tls_dir/ca.crt" \
+        -subj "/CN=TestCA" >/dev/null 2>&1
+    openssl genrsa -out "$tls_dir/server.key" 2048 >/dev/null 2>&1
+    openssl req -new -key "$tls_dir/server.key" \
+        -out "$tls_dir/server.csr" \
+        -subj "/CN=127.0.0.1" >/dev/null 2>&1
+    openssl x509 -req -days 1 \
+        -in "$tls_dir/server.csr" \
+        -CA "$tls_dir/ca.crt" -CAkey "$tls_dir/ca.key" -CAcreateserial \
+        -out "$tls_dir/server.crt" >/dev/null 2>&1
+
+    if [[ ! -f "$tls_dir/server.crt" ]]; then
+        fail "TLS: generate self-signed certificates"
+        return
+    fi
+    pass "TLS: self-signed certificates generated"
+
+    # Start TLS server (plain port disabled)
+    local tls_server_dir="$TEST_TMP_DIR/tls-server"
+    mkdir -p "$tls_server_dir"
+    valkey-server \
+        --port "$PORT_TLS_PLAIN" \
+        --tls-port "$PORT_TLS" \
+        --tls-cert-file "$tls_dir/server.crt" \
+        --tls-key-file  "$tls_dir/server.key" \
+        --tls-ca-cert-file "$tls_dir/ca.crt" \
+        --daemonize yes \
+        --logfile "$tls_server_dir/valkey.log" \
+        --dir "$tls_server_dir" \
+        --pidfile "$tls_server_dir/valkey.pid" \
+        --loglevel warning >/dev/null 2>&1 || true
+
+    # Wait for plain port (TLS port may not respond to plain PING)
+    local i=0
+    while [[ $i -lt 40 ]]; do
+        valkey-cli -p "$PORT_TLS_PLAIN" PING >/dev/null 2>&1 && break
+        sleep 0.25; i=$((i+1))
+    done
+
+    # Connect via TLS and PING
+    local tls_ping
+    tls_ping="$(valkey-cli -p "$PORT_TLS" \
+        --tls \
+        --cacert "$tls_dir/ca.crt" \
+        --cert   "$tls_dir/server.crt" \
+        --key    "$tls_dir/server.key" \
+        PING 2>&1)" || true
+
+    if [[ "$tls_ping" == "PONG" ]]; then
+        pass "TLS: TLS connection PING → PONG"
+    else
+        fail "TLS: TLS connection PING → PONG (got: $tls_ping)"
+    fi
+
+    # Verify plain-text connection to TLS port is rejected
+    local plain_result
+    plain_result="$(valkey-cli -p "$PORT_TLS" PING 2>&1)" || true
+    if [[ "$plain_result" != "PONG" ]]; then
+        pass "TLS: plain-text connection to TLS port is rejected"
+    else
+        fail "TLS: plain-text connection to TLS port is rejected (accepted plain text)"
+    fi
+
+    # Cleanup
+    valkey-cli -p "$PORT_TLS_PLAIN" SHUTDOWN NOSAVE >/dev/null 2>&1 || true
+    sleep 0.3
+    local tls_pid
+    tls_pid="$(cat "$tls_server_dir/valkey.pid" 2>/dev/null || true)"
+    [[ -n "$tls_pid" ]] && kill "$tls_pid" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# Config Reload / Runtime Config
+# ---------------------------------------------------------------------------
+test_op_config_reload() {
+    section_header "Operational Test: Config Reload / Runtime Config"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping config reload tests"
+        return
+    fi
+
+    if ! start_test_server "cfg-reload" "$PORT_CFG_RELOAD"; then
+        fail "config reload: server started"
+        return
+    fi
+    pass "config reload: server started"
+
+    # CONFIG SET hz
+    local set_result
+    set_result="$(vcli "$PORT_CFG_RELOAD" CONFIG SET hz 15)"
+    if [[ "$set_result" == "OK" ]]; then
+        pass "config reload: CONFIG SET hz 15"
+    else
+        fail "config reload: CONFIG SET hz 15 (got: $set_result)"
+    fi
+
+    # CONFIG GET reflects new value
+    local get_hz
+    get_hz="$(vcli "$PORT_CFG_RELOAD" CONFIG GET hz | tail -1 | tr -d '[:space:]')"
+    if [[ "$get_hz" == "15" ]]; then
+        pass "config reload: CONFIG GET hz returns 15"
+    else
+        fail "config reload: CONFIG GET hz returns 15 (got: $get_hz)"
+    fi
+
+    # CONFIG SET maxmemory
+    set_result="$(vcli "$PORT_CFG_RELOAD" CONFIG SET maxmemory 100mb)"
+    if [[ "$set_result" == "OK" ]]; then
+        pass "config reload: CONFIG SET maxmemory 100mb"
+    else
+        fail "config reload: CONFIG SET maxmemory 100mb (got: $set_result)"
+    fi
+
+    local get_mem
+    get_mem="$(vcli "$PORT_CFG_RELOAD" CONFIG GET maxmemory | tail -1 | tr -d '[:space:]')"
+    if [[ "$get_mem" == "104857600" ]]; then
+        pass "config reload: CONFIG GET maxmemory returns 104857600"
+    else
+        fail "config reload: CONFIG GET maxmemory returns 104857600 (got: $get_mem)"
+    fi
+
+    # CONFIG REWRITE (needs a config file)
+    local cfg_file="$TEST_TMP_DIR/cfg-reload/test.conf"
+    echo "hz 10" > "$cfg_file"
+    vcli "$PORT_CFG_RELOAD" CONFIG SET save "" >/dev/null  # suppress warning
+    set_result="$(vcli "$PORT_CFG_RELOAD" CONFIG REWRITE)" 2>/dev/null || true
+    # REWRITE requires the server to have been started with a config file;
+    # we didn't, so ERR is expected — just verify it doesn't crash
+    if [[ "$set_result" == "OK" ]] || [[ "$set_result" == *"ERR"* ]]; then
+        pass "config reload: CONFIG REWRITE returns OK or expected ERR (not a crash)"
+    else
+        fail "config reload: CONFIG REWRITE (got: $set_result)"
+    fi
+
+    # Invalid CONFIG SET must error without crashing
+    local invalid_result
+    invalid_result="$(vcli "$PORT_CFG_RELOAD" CONFIG SET hz not_a_number)"
+    if [[ "$invalid_result" == *"ERR"* ]] || [[ "$invalid_result" == *"Invalid"* ]]; then
+        pass "config reload: invalid CONFIG SET returns error without crash"
+    else
+        fail "config reload: invalid CONFIG SET returns error without crash (got: $invalid_result)"
+    fi
+
+    # SIGHUP reload (send SIGHUP and verify server still responds)
+    local server_pid
+    server_pid="$(cat "$TEST_TMP_DIR/cfg-reload/valkey.pid" 2>/dev/null || true)"
+    if [[ -n "$server_pid" ]]; then
+        kill -HUP "$server_pid" 2>/dev/null || true
+        sleep 0.5
+        local ping_after_hup
+        ping_after_hup="$(vcli "$PORT_CFG_RELOAD" PING)"
+        if [[ "$ping_after_hup" == "PONG" ]]; then
+            pass "config reload: server responds after SIGHUP"
+        else
+            fail "config reload: server responds after SIGHUP (got: $ping_after_hup)"
+        fi
+    else
+        skip "config reload: SIGHUP test skipped (could not read PID)"
+    fi
+
+    stop_test_server "cfg-reload" "$PORT_CFG_RELOAD"
+}
+
+# ---------------------------------------------------------------------------
+# Multi-instance (templated units)
+# ---------------------------------------------------------------------------
+test_op_multi_instance() {
+    section_header "Operational Test: Multi-instance"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping multi-instance tests"
+        return
+    fi
+
+    local port1="$PORT_MULTI1" port2="$PORT_MULTI2"
+
+    # Start two independent instances
+    if ! start_test_server "multi-inst1" "$port1"; then
+        fail "multi-instance: instance 1 started on port $port1"
+        return
+    fi
+    pass "multi-instance: instance 1 started on port $port1"
+
+    if ! start_test_server "multi-inst2" "$port2"; then
+        fail "multi-instance: instance 2 started on port $port2"
+        stop_test_server "multi-inst1" "$port1"
+        return
+    fi
+    pass "multi-instance: instance 2 started on port $port2"
+
+    # Both running concurrently
+    local ping1 ping2
+    ping1="$(vcli "$port1" PING)"
+    ping2="$(vcli "$port2" PING)"
+    if [[ "$ping1" == "PONG" ]] && [[ "$ping2" == "PONG" ]]; then
+        pass "multi-instance: both instances respond to PING concurrently"
+    else
+        fail "multi-instance: both instances respond to PING concurrently (got: $ping1, $ping2)"
+    fi
+
+    # Each has its own data directory
+    local dir1="$TEST_TMP_DIR/multi-inst1" dir2="$TEST_TMP_DIR/multi-inst2"
+    assert_dir_exists "$dir1" "multi-instance: instance 1 data dir"
+    assert_dir_exists "$dir2" "multi-instance: instance 2 data dir"
+
+    # Data isolation — key set on instance 1 not visible on instance 2
+    vcli "$port1" SET __multi_key__ "inst1_val" >/dev/null
+    local iso_val
+    iso_val="$(vcli "$port2" GET __multi_key__)"
+    if [[ "$iso_val" == "" ]] || [[ "$iso_val" == "(nil)" ]]; then
+        pass "multi-instance: instances have isolated keyspaces"
+    else
+        fail "multi-instance: instances have isolated keyspaces (instance 2 returned: $iso_val)"
+    fi
+
+    stop_test_server "multi-inst1" "$port1"
+    stop_test_server "multi-inst2" "$port2"
+}
+
+# ---------------------------------------------------------------------------
+# Pub/Sub
+# ---------------------------------------------------------------------------
+test_op_pubsub() {
+    section_header "Operational Test: Pub/Sub"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping Pub/Sub tests"
+        return
+    fi
+
+    if ! start_test_server "pubsub" "$PORT_PUBSUB"; then
+        fail "pubsub: server started"
+        return
+    fi
+    pass "pubsub: server started"
+
+    # Subscribe in background, publish, capture received message
+    local sub_out="$TEST_TMP_DIR/pubsub/sub.out"
+    timeout 5 valkey-cli -p "$PORT_PUBSUB" SUBSCRIBE testchan >"$sub_out" 2>&1 &
+    local sub_pid=$!
+    sleep 0.5
+
+    vcli "$PORT_PUBSUB" PUBLISH testchan "hello_pubsub" >/dev/null
+    sleep 0.5
+    kill "$sub_pid" 2>/dev/null || true
+    wait "$sub_pid" 2>/dev/null || true
+
+    if grep -q "hello_pubsub" "$sub_out" 2>/dev/null; then
+        pass "pubsub: subscriber received published message"
+    else
+        fail "pubsub: subscriber received published message (sub output: $(cat "$sub_out" 2>/dev/null | tr '\n' ' '))"
+    fi
+
+    stop_test_server "pubsub" "$PORT_PUBSUB"
+}
+
+# ---------------------------------------------------------------------------
+# Streams
+# ---------------------------------------------------------------------------
+test_op_streams() {
+    section_header "Operational Test: Streams"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping Streams tests"
+        return
+    fi
+
+    if ! start_test_server "streams" "$PORT_STREAMS"; then
+        fail "streams: server started"
+        return
+    fi
+    pass "streams: server started"
+
+    # XADD entries
+    local id1 id2
+    id1="$(vcli "$PORT_STREAMS" XADD mystream '*' field1 value1)"
+    id2="$(vcli "$PORT_STREAMS" XADD mystream '*' field2 value2)"
+    if [[ "$id1" =~ ^[0-9]+-[0-9]+$ ]] && [[ "$id2" =~ ^[0-9]+-[0-9]+$ ]]; then
+        pass "streams: XADD returned valid entry IDs"
+    else
+        fail "streams: XADD returned valid entry IDs (got: $id1, $id2)"
+    fi
+
+    # XLEN
+    local xlen
+    xlen="$(vcli "$PORT_STREAMS" XLEN mystream)"
+    if [[ "$xlen" == "2" ]]; then
+        pass "streams: XLEN reports 2 entries"
+    else
+        fail "streams: XLEN reports 2 entries (got: $xlen)"
+    fi
+
+    # XREAD
+    local xread_output
+    xread_output="$(vcli "$PORT_STREAMS" XREAD COUNT 2 STREAMS mystream 0)"
+    if [[ "$xread_output" == *"value1"* ]] && [[ "$xread_output" == *"value2"* ]]; then
+        pass "streams: XREAD returned both entries"
+    else
+        fail "streams: XREAD returned both entries (got: $xread_output)"
+    fi
+
+    # Consumer group
+    vcli "$PORT_STREAMS" XGROUP CREATE mystream grp1 0 >/dev/null
+    local xreadgroup_output
+    xreadgroup_output="$(vcli "$PORT_STREAMS" XREADGROUP GROUP grp1 consumer1 COUNT 10 STREAMS mystream '>')"
+    if [[ "$xreadgroup_output" == *"value1"* ]]; then
+        pass "streams: XREADGROUP consumer group reads entries"
+    else
+        fail "streams: XREADGROUP consumer group reads entries (got: $xreadgroup_output)"
+    fi
+
+    # XACK
+    local xack_result
+    xack_result="$(vcli "$PORT_STREAMS" XACK mystream grp1 "$id1")"
+    if [[ "$xack_result" == "1" ]]; then
+        pass "streams: XACK acknowledged entry"
+    else
+        fail "streams: XACK acknowledged entry (got: $xack_result)"
+    fi
+
+    # XPENDING — one entry still pending
+    local xpending_output
+    xpending_output="$(vcli "$PORT_STREAMS" XPENDING mystream grp1 - '+' 10)"
+    if [[ "$xpending_output" == *"$id2"* ]]; then
+        pass "streams: XPENDING shows unacknowledged entry"
+    else
+        fail "streams: XPENDING shows unacknowledged entry (got: $xpending_output)"
+    fi
+
+    stop_test_server "streams" "$PORT_STREAMS"
+}
+
+# ---------------------------------------------------------------------------
+# Transactions (MULTI/EXEC/WATCH)
+# ---------------------------------------------------------------------------
+test_op_transactions() {
+    section_header "Operational Test: Transactions (MULTI/EXEC/WATCH)"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping transaction tests"
+        return
+    fi
+
+    if ! start_test_server "txn" "$PORT_TXN"; then
+        fail "transactions: server started"
+        return
+    fi
+    pass "transactions: server started"
+
+    # Basic MULTI/EXEC
+    local exec_result
+    exec_result="$(valkey-cli -p "$PORT_TXN" <<'EOF'
+MULTI
+SET txn_key hello
+INCR txn_counter
+EXEC
+EOF
+)"
+    if [[ "$exec_result" == *"OK"* ]] && [[ "$exec_result" == *"1"* ]]; then
+        pass "transactions: MULTI/EXEC executes queued commands"
+    else
+        fail "transactions: MULTI/EXEC executes queued commands (got: $exec_result)"
+    fi
+
+    # DISCARD
+    local discard_result
+    discard_result="$(valkey-cli -p "$PORT_TXN" <<'EOF'
+MULTI
+SET txn_discard_key will_not_be_set
+DISCARD
+EOF
+)"
+    if [[ "$discard_result" == *"OK"* ]]; then
+        pass "transactions: DISCARD aborts transaction"
+    else
+        fail "transactions: DISCARD aborts transaction (got: $discard_result)"
+    fi
+    local discarded_val
+    discarded_val="$(vcli "$PORT_TXN" GET txn_discard_key)"
+    if [[ "$discarded_val" == "" ]] || [[ "$discarded_val" == "(nil)" ]]; then
+        pass "transactions: key not set after DISCARD"
+    else
+        fail "transactions: key not set after DISCARD (got: $discarded_val)"
+    fi
+
+    # WATCH — optimistic locking (no conflict case)
+    vcli "$PORT_TXN" SET watch_key 0 >/dev/null
+    local watch_result
+    watch_result="$(valkey-cli -p "$PORT_TXN" <<'EOF'
+WATCH watch_key
+MULTI
+INCR watch_key
+EXEC
+EOF
+)"
+    if [[ "$watch_result" == *"1"* ]]; then
+        pass "transactions: WATCH + MULTI/EXEC succeeds when key not modified"
+    else
+        fail "transactions: WATCH + MULTI/EXEC succeeds when key not modified (got: $watch_result)"
+    fi
+
+    stop_test_server "txn" "$PORT_TXN"
+}
+
+# ---------------------------------------------------------------------------
+# Lua Scripting
+# ---------------------------------------------------------------------------
+test_op_lua() {
+    section_header "Operational Test: Lua Scripting"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping Lua tests"
+        return
+    fi
+
+    if ! start_test_server "lua" "$PORT_LUA"; then
+        fail "lua: server started"
+        return
+    fi
+    pass "lua: server started"
+
+    # Basic EVAL
+    local eval_result
+    eval_result="$(vcli "$PORT_LUA" EVAL "return 'hello_lua'" 0)"
+    if [[ "$eval_result" == "hello_lua" ]]; then
+        pass "lua: EVAL returns expected value"
+    else
+        fail "lua: EVAL returns expected value (got: $eval_result)"
+    fi
+
+    # EVAL with keys and args
+    vcli "$PORT_LUA" SET lua_key "lua_base" >/dev/null
+    local eval_get
+    eval_get="$(vcli "$PORT_LUA" EVAL "return redis.call('GET', KEYS[1])" 1 lua_key)"
+    if [[ "$eval_get" == "lua_base" ]]; then
+        pass "lua: EVAL can call GET via redis.call"
+    else
+        fail "lua: EVAL can call GET via redis.call (got: $eval_get)"
+    fi
+
+    # SCRIPT LOAD + EVALSHA
+    local sha
+    sha="$(vcli "$PORT_LUA" SCRIPT LOAD "return 'loaded_script'")"
+    if [[ ${#sha} -eq 40 ]]; then
+        pass "lua: SCRIPT LOAD returns SHA1 digest"
+    else
+        fail "lua: SCRIPT LOAD returns SHA1 digest (got: $sha)"
+    fi
+
+    local evalsha_result
+    evalsha_result="$(vcli "$PORT_LUA" EVALSHA "$sha" 0)"
+    if [[ "$evalsha_result" == "loaded_script" ]]; then
+        pass "lua: EVALSHA executes loaded script"
+    else
+        fail "lua: EVALSHA executes loaded script (got: $evalsha_result)"
+    fi
+
+    # Invalid SHA returns NOSCRIPT error
+    local noscript
+    noscript="$(vcli "$PORT_LUA" EVALSHA "0000000000000000000000000000000000000000" 0)"
+    if [[ "$noscript" == *"NOSCRIPT"* ]]; then
+        pass "lua: invalid EVALSHA returns NOSCRIPT error"
+    else
+        fail "lua: invalid EVALSHA returns NOSCRIPT error (got: $noscript)"
+    fi
+
+    stop_test_server "lua" "$PORT_LUA"
+}
+
+# ---------------------------------------------------------------------------
+# Keyspace Notifications
+# ---------------------------------------------------------------------------
+test_op_keyspace_notifications() {
+    section_header "Operational Test: Keyspace Notifications"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping keyspace notification tests"
+        return
+    fi
+
+    if ! start_test_server "keyspace" "$PORT_KEYSPACE" \
+            --notify-keyspace-events "KEA"; then
+        fail "keyspace notifications: server started"
+        return
+    fi
+    pass "keyspace notifications: server started"
+
+    # Subscribe to keyspace events in background
+    local ks_out="$TEST_TMP_DIR/keyspace/ks.out"
+    timeout 5 valkey-cli -p "$PORT_KEYSPACE" \
+        PSUBSCRIBE '__keyevent@0__:*' >"$ks_out" 2>&1 &
+    local ks_pid=$!
+    sleep 0.5
+
+    # Trigger a SET, DEL, and expire
+    vcli "$PORT_KEYSPACE" SET ks_testkey "v1" >/dev/null
+    vcli "$PORT_KEYSPACE" DEL ks_testkey >/dev/null
+    vcli "$PORT_KEYSPACE" SET ks_expkey "v2" >/dev/null
+    vcli "$PORT_KEYSPACE" EXPIRE ks_expkey 1 >/dev/null
+    sleep 0.5
+
+    kill "$ks_pid" 2>/dev/null || true
+    wait "$ks_pid" 2>/dev/null || true
+
+    if grep -q "set" "$ks_out" 2>/dev/null; then
+        pass "keyspace notifications: SET event received"
+    else
+        fail "keyspace notifications: SET event received (output: $(cat "$ks_out" 2>/dev/null | tr '\n' ' '))"
+    fi
+
+    if grep -q "del" "$ks_out" 2>/dev/null; then
+        pass "keyspace notifications: DEL event received"
+    else
+        fail "keyspace notifications: DEL event received"
+    fi
+
+    if grep -q "expire" "$ks_out" 2>/dev/null; then
+        pass "keyspace notifications: EXPIRE event received"
+    else
+        fail "keyspace notifications: EXPIRE event received"
+    fi
+
+    stop_test_server "keyspace" "$PORT_KEYSPACE"
+}
+
+# ---------------------------------------------------------------------------
+# Unix Socket
+# ---------------------------------------------------------------------------
+test_op_unix_socket() {
+    section_header "Operational Test: Unix Socket"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping Unix socket tests"
+        return
+    fi
+
+    local socket_path="$TEST_TMP_DIR/unix-socket/valkey.sock"
+    mkdir -p "$(dirname "$socket_path")"
+
+    if ! start_test_server "unix-tcp" "$PORT_UNIX_TCP" \
+            --unixsocket "$socket_path" \
+            --unixsocketperm 770; then
+        fail "unix socket: server started with unix socket"
+        return
+    fi
+    pass "unix socket: server started with unix socket"
+
+    # Verify socket file exists
+    if [[ -S "$socket_path" ]]; then
+        pass "unix socket: socket file exists at $socket_path"
+    else
+        fail "unix socket: socket file exists at $socket_path"
+    fi
+
+    # Connect via socket
+    local sock_ping
+    sock_ping="$(valkey-cli -s "$socket_path" PING 2>&1)"
+    if [[ "$sock_ping" == "PONG" ]]; then
+        pass "unix socket: PING via unix socket → PONG"
+    else
+        fail "unix socket: PING via unix socket → PONG (got: $sock_ping)"
+    fi
+
+    # SET/GET via socket
+    valkey-cli -s "$socket_path" SET __sock_key__ "sock_val" >/dev/null 2>&1
+    local sock_val
+    sock_val="$(valkey-cli -s "$socket_path" GET __sock_key__ 2>&1)"
+    if [[ "$sock_val" == "sock_val" ]]; then
+        pass "unix socket: SET/GET via unix socket"
+    else
+        fail "unix socket: SET/GET via unix socket (got: $sock_val)"
+    fi
+
+    stop_test_server "unix-tcp" "$PORT_UNIX_TCP"
+}
+
+# ---------------------------------------------------------------------------
+# Memory Eviction
+# ---------------------------------------------------------------------------
+test_op_eviction() {
+    section_header "Operational Test: Memory Eviction"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping eviction tests"
+        return
+    fi
+
+    # Start with a tight maxmemory and allkeys-lru policy
+    if ! start_test_server "eviction" "$PORT_EVICTION" \
+            --maxmemory 5mb \
+            --maxmemory-policy allkeys-lru; then
+        fail "eviction: server started with maxmemory=5mb"
+        return
+    fi
+    pass "eviction: server started with maxmemory=5mb allkeys-lru"
+
+    # Fill memory past the limit
+    local i=0
+    while [[ $i -lt 2000 ]]; do
+        vcli "$PORT_EVICTION" SET "evict_key_$i" "$(head -c 512 /dev/urandom | base64 | head -c 512)" >/dev/null 2>&1 || true
+        i=$((i + 1))
+    done
+
+    # Server must still be responding (no crash)
+    local evict_ping
+    evict_ping="$(vcli "$PORT_EVICTION" PING)"
+    if [[ "$evict_ping" == "PONG" ]]; then
+        pass "eviction: server still alive after filling memory past limit"
+    else
+        fail "eviction: server still alive after filling memory past limit (got: $evict_ping)"
+    fi
+
+    # Verify evictions occurred
+    local evicted_keys
+    evicted_keys="$(info_field "$PORT_EVICTION" "evicted_keys")"
+    if [[ "$evicted_keys" =~ ^[0-9]+$ ]] && [[ "$evicted_keys" -gt 0 ]]; then
+        pass "eviction: evicted_keys > 0 ($evicted_keys keys evicted)"
+    else
+        fail "eviction: evicted_keys > 0 (got: $evicted_keys)"
+    fi
+
+    # Used memory should not massively exceed maxmemory
+    local used_mem
+    used_mem="$(info_field "$PORT_EVICTION" "used_memory")"
+    local max_mem_bytes=$((8 * 1024 * 1024))  # allow some overhead above 5mb
+    if [[ "$used_mem" =~ ^[0-9]+$ ]] && [[ "$used_mem" -lt "$max_mem_bytes" ]]; then
+        pass "eviction: used_memory ($used_mem bytes) within acceptable range"
+    else
+        fail "eviction: used_memory ($used_mem bytes) exceeds expected ceiling ($max_mem_bytes bytes)"
+    fi
+
+    stop_test_server "eviction" "$PORT_EVICTION"
+}
+
+# ---------------------------------------------------------------------------
+# Slow Log
+# ---------------------------------------------------------------------------
+test_op_slowlog() {
+    section_header "Operational Test: Slow Log"
+
+    if ! command -v valkey-server &>/dev/null; then
+        skip "valkey-server not in PATH — skipping slow log tests"
+        return
+    fi
+
+    # Set a very low threshold so all commands are logged
+    if ! start_test_server "slowlog" "$PORT_SLOWLOG" \
+            --slowlog-log-slower-than 0 \
+            --slowlog-max-len 128; then
+        fail "slowlog: server started with slowlog-log-slower-than=0"
+        return
+    fi
+    pass "slowlog: server started with slowlog-log-slower-than=0"
+
+    # Run a few commands
+    vcli "$PORT_SLOWLOG" SET slow_key hello >/dev/null
+    vcli "$PORT_SLOWLOG" GET slow_key >/dev/null
+    vcli "$PORT_SLOWLOG" INCR slow_counter >/dev/null
+
+    # SLOWLOG LEN
+    local slow_len
+    slow_len="$(vcli "$PORT_SLOWLOG" SLOWLOG LEN)"
+    if [[ "$slow_len" =~ ^[0-9]+$ ]] && [[ "$slow_len" -gt 0 ]]; then
+        pass "slowlog: SLOWLOG LEN > 0 ($slow_len entries)"
+    else
+        fail "slowlog: SLOWLOG LEN > 0 (got: $slow_len)"
+    fi
+
+    # SLOWLOG GET returns entries
+    local slow_get
+    slow_get="$(vcli "$PORT_SLOWLOG" SLOWLOG GET 5)"
+    if [[ "$slow_get" != "(empty array)" ]] && [[ -n "$slow_get" ]]; then
+        pass "slowlog: SLOWLOG GET returns entries"
+    else
+        fail "slowlog: SLOWLOG GET returns entries (empty)"
+    fi
+
+    # SLOWLOG RESET
+    vcli "$PORT_SLOWLOG" SLOWLOG RESET >/dev/null
+    slow_len="$(vcli "$PORT_SLOWLOG" SLOWLOG LEN)"
+    # After RESET, len should be 0 or 1 (the RESET command itself may be logged)
+    if [[ "$slow_len" =~ ^[01]$ ]]; then
+        pass "slowlog: SLOWLOG RESET clears log"
+    else
+        fail "slowlog: SLOWLOG RESET clears log (got len: $slow_len)"
+    fi
+
+    stop_test_server "slowlog" "$PORT_SLOWLOG"
+}
+
+# ---------------------------------------------------------------------------
+# Performance Baseline
+# ---------------------------------------------------------------------------
+test_op_performance() {
+    section_header "Operational Test: Performance Baseline"
+
+    if ! command -v valkey-server &>/dev/null || ! command -v valkey-benchmark &>/dev/null; then
+        skip "valkey-server or valkey-benchmark not in PATH — skipping performance tests"
+        return
+    fi
+
+    if ! start_test_server "perf" "$PORT_PERF"; then
+        fail "performance: server started"
+        return
+    fi
+    pass "performance: server started"
+
+    # Run benchmark — 10k requests, pipeline 10, single-thread client
+    # Minimum threshold: 10k ops/sec (conservative — works in containers)
+    local bench_output
+    bench_output="$(valkey-benchmark -p "$PORT_PERF" -n 10000 -P 10 -q 2>&1)" || true
+
+    # Extract GET throughput
+    local get_rps
+    get_rps="$(echo "$bench_output" | grep '^GET' | grep -oP '[0-9]+\.[0-9]+' | head -1)"
+    get_rps="${get_rps%.*}"  # strip decimals
+    if [[ -n "$get_rps" ]] && [[ "$get_rps" -ge 10000 ]]; then
+        pass "performance: GET throughput >= 10k ops/sec ($get_rps ops/sec)"
+    elif [[ -n "$get_rps" ]]; then
+        fail "performance: GET throughput >= 10k ops/sec (got: $get_rps ops/sec)"
+    else
+        skip "performance: could not parse GET throughput from benchmark output"
+    fi
+
+    # Extract SET throughput
+    local set_rps
+    set_rps="$(echo "$bench_output" | grep '^SET' | grep -oP '[0-9]+\.[0-9]+' | head -1)"
+    set_rps="${set_rps%.*}"
+    if [[ -n "$set_rps" ]] && [[ "$set_rps" -ge 10000 ]]; then
+        pass "performance: SET throughput >= 10k ops/sec ($set_rps ops/sec)"
+    elif [[ -n "$set_rps" ]]; then
+        fail "performance: SET throughput >= 10k ops/sec (got: $set_rps ops/sec)"
+    else
+        skip "performance: could not parse SET throughput from benchmark output"
+    fi
+
+    # Memory sanity check
+    local used_memory_rss
+    used_memory_rss="$(info_field "$PORT_PERF" "used_memory_rss")"
+    local max_rss=$((256 * 1024 * 1024))  # 256MB upper bound for idle server
+    if [[ "$used_memory_rss" =~ ^[0-9]+$ ]] && [[ "$used_memory_rss" -lt "$max_rss" ]]; then
+        pass "performance: used_memory_rss ($used_memory_rss bytes) is within expected bounds"
+    else
+        fail "performance: used_memory_rss ($used_memory_rss bytes) exceeds expected ceiling ($max_rss bytes)"
+    fi
+
+    stop_test_server "perf" "$PORT_PERF"
+}
+
+###############################################################################
 # Summary
 ###############################################################################
 print_summary() {
@@ -1311,6 +2810,39 @@ main() {
     test_compat_redis
     test_dev_headers
     test_logrotate
+
+    # Stop any lingering services before operational tests
+    if has_systemd; then
+        if [[ "$OS_FAMILY" == "deb" ]]; then
+            systemctl stop valkey-server valkey-sentinel 2>/dev/null || true
+        else
+            systemctl stop valkey@default valkey-sentinel@default 2>/dev/null || true
+        fi
+        sleep 1
+    fi
+
+    # Operational smoke tests
+    setup_operational_tests
+
+    test_op_replication
+    test_op_sentinel_failover
+    test_op_cluster
+    test_op_persistence
+    test_op_acl
+    test_op_tls
+    test_op_config_reload
+    test_op_multi_instance
+    test_op_pubsub
+    test_op_streams
+    test_op_transactions
+    test_op_lua
+    test_op_keyspace_notifications
+    test_op_unix_socket
+    test_op_eviction
+    test_op_slowlog
+    test_op_performance
+
+    cleanup_operational_tests
 
     # Stop any lingering services before removal
     if has_systemd; then
