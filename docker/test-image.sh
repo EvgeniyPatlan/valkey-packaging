@@ -45,7 +45,9 @@ check() {
     fi
 }
 
-# Wait for valkey to be ready (up to 10 seconds)
+# Wait for valkey to be ready (up to 10 seconds). On timeout, dump the
+# container's logs and state so the next diagnostic in the log isn't just
+# a wall of FAILs with no indication that the server didn't start.
 wait_ready() {
     local cnt="$1"
     for i in $(seq 1 20); do
@@ -54,6 +56,12 @@ wait_ready() {
         fi
         sleep 0.5
     done
+    echo "  (wait_ready timed out — container diagnostics follow)" >&2
+    echo "  --- docker inspect State ---" >&2
+    docker inspect --format '{{json .State}}' "$cnt" 2>&1 | head -c 500 >&2 || true
+    echo >&2
+    echo "  --- docker logs (tail 20) ---" >&2
+    docker logs --tail 20 "$cnt" 2>&1 >&2 || true
     return 1
 }
 

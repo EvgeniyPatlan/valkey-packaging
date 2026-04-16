@@ -53,6 +53,18 @@ RUN set -eux; \
 		done; \
 	done; \
 	\
+	# Copy dlopen'd plugins that ldd doesn't see. New in Valkey 9.1:
+	# libvalkeylua.so is the shared Lua scripting engine, loaded via
+	# dlopen at startup. Without it, valkey-server fails to initialize
+	# the Lua engine and exits immediately — breaking every runtime
+	# container test even though static binary checks pass.
+	for lib in /usr/lib/libvalkeylua.so /usr/lib/*/libvalkeylua.so; do \
+		[ -f "$lib" ] || continue; \
+		libdir="$(dirname "$lib")"; \
+		mkdir -p "/runtime${libdir}"; \
+		cp -L "$lib" "/runtime${libdir}/"; \
+	done; \
+	\
 	VALKEY_UID=$(id -u valkey); \
 	VALKEY_GID=$(getent group valkey | cut -d: -f3); \
 	chown ${VALKEY_UID}:${VALKEY_GID} /runtime/data /runtime/run/valkey /runtime/etc/valkey; \

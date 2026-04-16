@@ -1471,10 +1471,15 @@ EOF
         fail "sentinel: failover did not elect a new master within 20s"
     fi
 
-    # Verify new master accepts writes
+    # Verify new master accepts writes. Note: do NOT add `2>&1` to the outer
+    # command substitution — vcli already merges stderr into stdout for the
+    # valkey-cli call itself, and an outer `2>&1` under `bash -x` will
+    # capture the subshell's xtrace output (+ local port=…, + shift, …)
+    # into $write_result alongside the reply, turning `OK` into a multi-line
+    # blob that fails the == "OK" check.
     if [[ -n "$new_master_port" ]]; then
         local write_result
-        write_result="$(vcli "$new_master_port" SET __sentinel_test__ "post_failover" 2>&1)"
+        write_result="$(vcli "$new_master_port" SET __sentinel_test__ "post_failover")"
         if [[ "$write_result" == "OK" ]]; then
             pass "sentinel: new master accepts writes after failover"
         else
@@ -2625,12 +2630,21 @@ test_op_performance() {
     # Run benchmark — 10k requests, pipeline 10, single-thread client
     # Minimum threshold: 10k ops/sec (conservative — works in containers)
     local bench_output
-    bench_output="$(valkey-benchmark -p "$PORT_PERF" -n 10000 -P 10 -q 2>&1)" || true
+    # Strip CRs from the benchmark output. valkey-benchmark -q emits
+    # progress updates terminated with \r that get preserved when stdout is
+    # captured; without this strip, `grep '^GET'` fails to anchor because
+    # the line actually starts with \r.
+    bench_output="$(valkey-benchmark -p "$PORT_PERF" -n 10000 -P 10 -q 2>&1 | tr -d '\r')" || true
 
     # Extract GET throughput
     local get_rps
-    get_rps="$(echo "$bench_output" | grep '^GET' | grep -oP '[0-9]+\.[0-9]+' | head -1)"
-    get_rps="${get_rps%.*}"  # strip decimals
+    # Match only the final "requests per second" summary line, not progress
+    # updates. Format: "GET: 769230.75 requests per second, p50=0.311 msec".
+    # awk extracts the second whitespace-separated token on the matching
+    # line, and we drop the decimal part for integer comparison.
+    get_rps="$(echo "$bench_output" \
+        | awk '/^GET:.*requests per second/ { print $2; exit }')"
+    get_rps="${get_rps%.*}"
     if [[ -n "$get_rps" ]] && [[ "$get_rps" -ge 10000 ]]; then
         pass "performance: GET throughput >= 10k ops/sec ($get_rps ops/sec)"
     elif [[ -n "$get_rps" ]]; then
@@ -2641,7 +2655,8 @@ test_op_performance() {
 
     # Extract SET throughput
     local set_rps
-    set_rps="$(echo "$bench_output" | grep '^SET' | grep -oP '[0-9]+\.[0-9]+' | head -1)"
+    set_rps="$(echo "$bench_output" \
+        | awk '/^SET:.*requests per second/ { print $2; exit }')"
     set_rps="${set_rps%.*}"
     if [[ -n "$set_rps" ]] && [[ "$set_rps" -ge 10000 ]]; then
         pass "performance: SET throughput >= 10k ops/sec ($set_rps ops/sec)"
