@@ -311,6 +311,25 @@ info_field() {
         | grep -i "^${field}:" | head -1 | cut -d: -f2 | tr -d '[:space:]'
 }
 
+# wait_for_replication_link <replica_port> [timeout_seconds]
+# Poll the replica's master_link_status until it is "up" or the timeout expires.
+# Returns 0 on success, 1 on timeout. Default timeout is 15s because a full
+# sync on a loaded container host can take several seconds even with an empty
+# dataset — a flat "sleep 1" is not reliable.
+wait_for_replication_link() {
+    local port="$1" timeout="${2:-15}"
+    local deadline=$((SECONDS + timeout))
+    while [[ $SECONDS -lt $deadline ]]; do
+        local status
+        status="$(info_field "$port" "master_link_status")"
+        if [[ "$status" == "up" ]]; then
+            return 0
+        fi
+        sleep 0.5
+    done
+    return 1
+}
+
 ###############################################################################
 # OS detection
 ###############################################################################
@@ -410,7 +429,8 @@ install_percona_release_rpm() {
 install_from_repo_deb() {
     section_header "Installing from Percona repo (deb, channel=$REPO_CHANNEL)"
     apt-get update -qq
-    apt-get install -y -qq wget gnupg2 lsb-release curl libssl
+    apt-get install -y -qq wget gnupg2 lsb-release curl
+    apt-get install -y -qq libssl | apt-get install -y -qq libssl3t64
     install_percona_release_deb
     percona-release enable valkey-9.0 "$REPO_CHANNEL"
     apt-get update -qq
@@ -1262,7 +1282,12 @@ test_op_replication() {
         return
     fi
 
-    sleep 1  # allow replication handshake
+    # Poll until the replication link is actually up rather than sleeping a
+    # flat second — a full sync handshake on a loaded container host can take
+    # multiple seconds even with an empty dataset.
+    for port in "$PORT_REPL_REPLICA1" "$PORT_REPL_REPLICA2"; do
+        wait_for_replication_link "$port" 15 || true
+    done
 
     # Check primary role
     local role
@@ -1287,23 +1312,35 @@ test_op_replication() {
             pass "replication: replica $port master_link_status:up"
         else
             fail "replication: replica $port master_link_status:up (got: $link_status)"
+            # Dump the log tail to help diagnose handshake failures
+            local replica_log="$TEST_TMP_DIR/repl-replica-$port/valkey.log"
+            if [[ -f "$replica_log" ]]; then
+                echo "  --- last 10 lines of $replica_log ---" >&2
+                tail -10 "$replica_log" >&2 || true
+            fi
         fi
     done
 
-    # Write on primary, read on replica
+    # Write on primary, poll the replica until it sees the value (handshake
+    # may still be in flight even though master_link_status is up for the
+    # first replica).
     vcli "$PORT_REPL_PRIMARY" SET __repl_test__ "replicated_value" >/dev/null
-    sleep 0.5
-    local repl_val
-    repl_val="$(vcli "$PORT_REPL_REPLICA1" GET __repl_test__)"
+    local repl_val="" deadline=$((SECONDS + 10))
+    while [[ $SECONDS -lt $deadline ]]; do
+        repl_val="$(vcli "$PORT_REPL_REPLICA1" GET __repl_test__)"
+        [[ "$repl_val" == "replicated_value" ]] && break
+        sleep 0.25
+    done
     if [[ "$repl_val" == "replicated_value" ]]; then
         pass "replication: data written on primary readable on replica"
     else
         fail "replication: data written on primary readable on replica (got: $repl_val)"
     fi
 
-    # WAIT — ensure replica is caught up
+    # WAIT — ensure replica is caught up. Give a larger budget than before;
+    # with WAIT 1 2000 a slow replica can time out before acknowledging.
     local wait_result
-    wait_result="$(vcli "$PORT_REPL_PRIMARY" WAIT 1 2000)"
+    wait_result="$(vcli "$PORT_REPL_PRIMARY" WAIT 1 5000)"
     if [[ "$wait_result" -ge 1 ]] 2>/dev/null; then
         pass "replication: WAIT confirmed at least 1 replica acknowledged"
     else
@@ -1718,15 +1755,21 @@ test_op_persistence() {
         fail "persistence: server restart after BGREWRITEAOF"
     fi
 
-    # Data directory ownership survives restart
-    local dir_owner
-    dir_owner="$(stat -c '%U' "$TEST_TMP_DIR/persist-aof" 2>/dev/null || true)"
-    # Temp dir is owned by whoever ran the test; just check the server can write
-    local aof_file="$TEST_TMP_DIR/persist-aof/appendonly.aof"
-    if [[ -f "$aof_file" ]] || ls "$TEST_TMP_DIR/persist-aof/"*.aof* >/dev/null 2>&1; then
+    # AOF file(s) must exist after the server has restarted and written data.
+    # Valkey 7+ uses multi-part AOF by default: an appendonlydir/ subdirectory
+    # containing a manifest plus .base.rdb / .incr.aof files. We therefore
+    # check both the legacy single-file layout and the new multi-part layout.
+    local aof_dir="$TEST_TMP_DIR/persist-aof"
+    if [[ -f "$aof_dir/appendonly.aof" ]] \
+        || compgen -G "$aof_dir/appendonlydir/*" >/dev/null \
+        || compgen -G "$aof_dir/*.aof*" >/dev/null \
+        || compgen -G "$aof_dir/*.manifest" >/dev/null; then
         pass "persistence: AOF file(s) present after restart"
     else
         fail "persistence: AOF file(s) present after restart"
+        echo "  --- contents of $aof_dir ---" >&2
+        ls -la "$aof_dir" >&2 2>/dev/null || true
+        [[ -d "$aof_dir/appendonlydir" ]] && ls -la "$aof_dir/appendonlydir" >&2 2>/dev/null || true
     fi
 
     stop_test_server "persist-aof" "$PORT_PERSIST_AOF"
@@ -2466,12 +2509,14 @@ test_op_eviction() {
     fi
     pass "eviction: server started with maxmemory=5mb allkeys-lru"
 
-    # Fill memory past the limit
-    local i=0
-    while [[ $i -lt 2000 ]]; do
-        vcli "$PORT_EVICTION" SET "evict_key_$i" "$(head -c 512 /dev/urandom | base64 | head -c 512)" >/dev/null 2>&1 || true
-        i=$((i + 1))
-    done
+    # Fill memory well past the 5 MB limit. 10 000 unique keys × 4 KiB ≈
+    # 40 MB of value bytes, far more than the cap even allowing for
+    # hashtable overhead. Use valkey-benchmark with -P 32 pipelining rather
+    # than forking one valkey-cli per SET (which is painfully slow in a
+    # container). -r ensures distinct keys so eviction has something to
+    # choose from, -d sets value size, -t set restricts to SET only.
+    valkey-benchmark -p "$PORT_EVICTION" \
+        -n 10000 -r 10000 -d 4096 -P 32 -t set -q >/dev/null 2>&1 || true
 
     # Server must still be responding (no crash)
     local evict_ping
