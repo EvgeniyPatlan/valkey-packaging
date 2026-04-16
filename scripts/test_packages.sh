@@ -442,7 +442,7 @@ install_from_repo_deb() {
         || apt-get install -y -qq libssl3 \
         || true
     install_percona_release_deb
-    percona-release enable valkey-9.0 "$REPO_CHANNEL"
+    percona-release enable valkey-91 "$REPO_CHANNEL"
     apt-get update -qq
     apt-get install -y percona-valkey-server percona-valkey-sentinel \
         percona-valkey-tools percona-valkey-compat-redis percona-valkey-compat-redis-dev \
@@ -457,7 +457,7 @@ install_from_repo_deb() {
 install_from_repo_rpm() {
     section_header "Installing from Percona repo (rpm, channel=$REPO_CHANNEL)"
     install_percona_release_rpm
-    percona-release enable valkey-9.0 "$REPO_CHANNEL"
+    percona-release enable valkey-91 "$REPO_CHANNEL"
     yum install -y percona-valkey percona-valkey-compat-redis \
         percona-valkey-compat-redis-devel percona-valkey-devel openssl
     # Capture installed package names and versions
