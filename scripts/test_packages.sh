@@ -430,7 +430,17 @@ install_from_repo_deb() {
     section_header "Installing from Percona repo (deb, channel=$REPO_CHANNEL)"
     apt-get update -qq
     apt-get install -y -qq wget gnupg2 lsb-release curl
-    apt-get install -y -qq libssl | apt-get install -y -qq libssl3t64
+    # libssl package name differs by distro. Ubuntu 24.04 / Debian trixie
+    # have libssl3t64 (t64 = 64-bit time_t transition); Ubuntu 22.04 /
+    # Debian 12 (bookworm) have libssl3. There is no unversioned `libssl`
+    # meta-package on either. Use || (sequential fallback), not | (pipe —
+    # that starts both concurrently and breaks the dpkg lock). Trailing
+    # "|| true" so we don't abort if the runtime ssl dep is already present
+    # via some other means; the real dep will be pulled in by
+    # percona-valkey-server's ${shlibs:Depends} anyway.
+    apt-get install -y -qq libssl3t64 \
+        || apt-get install -y -qq libssl3 \
+        || true
     install_percona_release_deb
     percona-release enable valkey-9.0 "$REPO_CHANNEL"
     apt-get update -qq
