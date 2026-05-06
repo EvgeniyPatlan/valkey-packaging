@@ -42,6 +42,7 @@
     V=1 \\\
     BUILD_WITH_SYSTEMD=yes \\\
     BUILD_TLS=yes \\\
+    BUILD_LUA=module \\\
     USE_SYSTEM_JEMALLOC=yes \\\
     PREFIX=%{_prefix}
 
