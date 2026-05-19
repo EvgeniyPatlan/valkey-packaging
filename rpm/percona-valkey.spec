@@ -26,6 +26,16 @@
 
 %bcond_with tests
 
+# Build the Lua scripting engine as a dlopen'd shared module
+# (libvalkeylua.so), new in Valkey 9.1. OFF by default: the upstream
+# default statically links Lua into valkey-server. Enable with:
+#   rpmbuild --with lua_module
+%bcond_with lua_module
+
+%if %{with lua_module}
+%global lua_module_build_flag BUILD_LUA=module
+%endif
+
 %define _data_dir       %{_localstatedir}/lib/%{valkey_name}
 %define _log_dir        %{_localstatedir}/log/%{valkey_name}
 %define _conf_dir       %{_sysconfdir}/%{valkey_name}
@@ -42,6 +52,7 @@
     V=1 \\\
     BUILD_WITH_SYSTEMD=yes \\\
     BUILD_TLS=yes \\\
+    %{?lua_module_build_flag} \\\
     USE_SYSTEM_JEMALLOC=yes \\\
     PREFIX=%{_prefix}
 
@@ -100,7 +111,11 @@ BuildRequires:  openssl
 # via -Wl,-rpath,$(PREFIX)/lib:$(current_dir)/modules/lua. Without this the
 # binaries leak both PREFIX and the source build directory into the ELF
 # .dynamic section, tripping check-buildroot and lintian rpath warnings.
+# Only needed when the Lua shared module is built (--with lua_module):
+# upstream injects the rpath only in BUILD_LUA=module mode.
+%if %{with lua_module}
 BuildRequires:  chrpath
+%endif
 
 %if 0%{?is_suse}
 BuildRequires:  jemalloc-devel
@@ -282,6 +297,7 @@ popd
 %install
 make install %{install_flags}
 
+%if %{with lua_module}
 # Upstream's install-lua-module hardcodes PREFIX/lib for the new shared
 # Lua module and does not reliably honor the INSTALL_LIB command-line
 # override across the top-level -> src/Makefile recursion, so on multilib
@@ -301,6 +317,7 @@ chrpath -d %{buildroot}%{_bindir}/%{valkey_name}-server
 chrpath -d %{buildroot}%{_bindir}/%{valkey_name}-cli
 chrpath -d %{buildroot}%{_bindir}/%{valkey_name}-benchmark
 chrpath -d %{buildroot}%{_libdir}/libvalkeylua.so 2>/dev/null || :
+%endif
 
 %if %{with docs}
 pushd %{valkey_name}-doc-%{doc_version}
@@ -500,7 +517,9 @@ EOF
 %endif
 
 %{_bindir}/%{valkey_name}-*
+%if %{with lua_module}
 %{_libdir}/libvalkeylua.so
+%endif
 %{_tmpfilesdir}/%{valkey_name}.conf
 %if 0%{?is_suse}
 %{_sysusersdir}/%{valkey_name}-user.conf

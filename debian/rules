@@ -12,6 +12,13 @@ export DEB_LDFLAGS_MAINT_APPEND = -Wl,-no-as-needed -ldl -latomic -llzf
 
 VALKEY_DOC_VERSION = 9.0.0
 
+# Build the Lua scripting engine as a dlopen'd shared module
+# (libvalkeylua.so), new in Valkey 9.1. OFF by default: the upstream
+# default statically links Lua into valkey-server. Enable by building
+# with the build profile, e.g.:
+#   DEB_BUILD_PROFILES=pkg.valkey.lua-module dpkg-buildpackage ...
+LUA_MODULE := $(if $(filter pkg.valkey.lua-module,$(DEB_BUILD_PROFILES)),yes,no)
+
 # Build jemalloc in parallel
 ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
 	NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
@@ -28,7 +35,11 @@ override_dh_auto_clean:
 	rm -rf valkey-doc-$(VALKEY_DOC_VERSION) valkey-doc-$(VALKEY_DOC_VERSION).tar.gz
 
 override_dh_auto_build:
+ifeq ($(LUA_MODULE),yes)
+	dh_auto_build -- V=1 USE_SYSTEM_JEMALLOC=yes USE_SYSTEMD=yes USE_JEMALLOC=yes BUILD_LUA=module PREFIX=/usr
+else
 	dh_auto_build -- V=1 USE_SYSTEM_JEMALLOC=yes USE_SYSTEMD=yes USE_JEMALLOC=yes PREFIX=/usr
+endif
 
 # Build documentation if not nodoc profile
 ifeq (,$(filter nodoc,$(DEB_BUILD_PROFILES)))
@@ -64,20 +75,16 @@ override_dh_auto_install:
 	install -D -m 0755 src/valkey-server debian/tmp/usr/bin/valkey-server
 	install -D -m 0755 src/valkey-cli debian/tmp/usr/bin/valkey-cli
 	install -D -m 0755 src/valkey-benchmark debian/tmp/usr/bin/valkey-benchmark
-	# Lua scripting engine (new in 9.1): valkey-server is compiled with
-	# -DLUA_ENABLED -DLUA_LIB=libvalkeylua.so and dlopens this file at
-	# runtime. We install it to /usr/lib (a default loader search path on
-	# Debian/Ubuntu after ldconfig) and strip the leaked RPATH below.
-	install -D -m 0644 src/modules/lua/libvalkeylua.so debian/tmp/usr/lib/libvalkeylua.so
-	# Strip the build-time RPATH that upstream 9.1+ bakes into binaries
-	# via -Wl,-rpath,$(PREFIX)/lib:$(current_dir)/modules/lua. The first
-	# entry is unnecessary (libvalkeylua.so is in /usr/lib which is in
-	# the default loader search path) and the second leaks the absolute
+ifeq ($(LUA_MODULE),yes)
+	# Strip the build-time RPATH that upstream 9.1+ injects only in
+	# BUILD_LUA=module mode via -Wl,-rpath,$(PREFIX)/lib:$(current_dir)/modules/lua.
+	# The first entry is unnecessary (libvalkeylua.so is in /usr/lib which is
+	# in the default loader search path) and the second leaks the absolute
 	# build directory which lintian/dpkg-shlibdeps reject.
 	chrpath -d debian/tmp/usr/bin/valkey-server
 	chrpath -d debian/tmp/usr/bin/valkey-cli
 	chrpath -d debian/tmp/usr/bin/valkey-benchmark
-	chrpath -d debian/tmp/usr/lib/libvalkeylua.so 2>/dev/null || true
+endif
 	# valkey-check-aof and valkey-check-rdb are the same binary as valkey-server
 	# (hardlinks in the source tree). Install as symlinks to avoid duplicate
 	# .build-id debug files that cause dbgsym package conflicts.
@@ -116,6 +123,19 @@ endif
 	# Generate systemd service files
 	debian/bin/generate-systemd-service-files
 
+override_dh_install:
+	dh_install
+ifeq ($(LUA_MODULE),yes)
+	# Lua scripting engine module (opt-in via build profile
+	# pkg.valkey.lua-module): valkey-server is built with
+	# -DLUA_LIB=libvalkeylua.so and dlopens it at runtime. /usr/lib is on
+	# the default loader search path. Installed directly into the package
+	# (not via debian/tmp + a .install entry) so default builds without the
+	# profile don't fail on the absent .so.
+	install -D -m 0644 src/modules/lua/libvalkeylua.so debian/percona-valkey-server/usr/lib/libvalkeylua.so
+	chrpath -d debian/percona-valkey-server/usr/lib/libvalkeylua.so 2>/dev/null || true
+endif
+
 override_dh_fixperms:
 	dh_fixperms
 	# Configuration files should be readable by valkey group only
@@ -142,5 +162,6 @@ override_dh_builddeb:
 	dh_builddeb -- -Zxz
 
 .PHONY: override_dh_auto_build override_dh_auto_install override_dh_auto_test \
-        override_dh_fixperms override_dh_compress override_dh_installchangelogs \
-        override_dh_installinit override_dh_installsystemd override_dh_builddeb
+        override_dh_install override_dh_fixperms override_dh_compress \
+        override_dh_installchangelogs override_dh_installinit \
+        override_dh_installsystemd override_dh_builddeb
