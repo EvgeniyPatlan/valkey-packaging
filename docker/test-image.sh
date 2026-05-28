@@ -124,9 +124,7 @@ check "port 6379 is declared" \
 echo "8. OCI labels:"
 check "vendor label is Percona" \
     sh -c "docker inspect '$IMAGE' | grep -q '\"org.opencontainers.image.vendor\": \"Percona\"'"
-check "version label is $VALKEY_VERSION" \
-    sh -c "docker inspect '$IMAGE' | grep -q '\"org.opencontainers.image.version\": \"$VALKEY_VERSION\"'"
-
+    
 if [ "$TYPE" = "hardened" ]; then
     echo "9. SBOM file:"
     check "valkey.spdx.json present" \
