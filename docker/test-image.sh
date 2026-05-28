@@ -12,7 +12,7 @@ set -euo pipefail
 
 IMAGE="${1:?Usage: $0 <image:tag> [hardened|rpm]}"
 TYPE="${2:-$(echo "$IMAGE" | grep -q hardened && echo hardened || echo rpm)}"
-VALKEY_VERSION="${VALKEY_VERSION:-9.0.3}"
+VALKEY_VERSION="${VALKEY_VERSION:-9.1.0}"
 CNT="valkey-test-$$"
 
 PASSED=0
