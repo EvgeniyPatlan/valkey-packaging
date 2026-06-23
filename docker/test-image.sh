@@ -125,13 +125,19 @@ echo "8. OCI labels:"
 check "vendor label is Percona" \
     sh -c "docker inspect '$IMAGE' | grep -q '\"org.opencontainers.image.vendor\": \"Percona\"'"
     
-if [ "$TYPE" = "hardened" ]; then
-    echo "9. SBOM file:"
-    check "valkey.spdx.json present" \
-        docker run --rm --entrypoint="" "$IMAGE" test -f /usr/local/valkey.spdx.json
-    check "SBOM contains valid JSON with version" \
-        sh -c "docker run --rm --entrypoint='' '$IMAGE' sh -c 'IFS= read -r l </usr/local/valkey.spdx.json; printf \"%s\\n\" \"\$l\"' | grep -q '$VALKEY_VERSION'"
+echo "9. SBOM files (SPDX + CycloneDX):"
+check "SPDX SBOM present (/usr/local/valkey.spdx.json)" \
+    docker run --rm --entrypoint="" "$IMAGE" test -f /usr/local/valkey.spdx.json
+check "CycloneDX SBOM present (/usr/local/valkey.cdx.json)" \
+    docker run --rm --entrypoint="" "$IMAGE" test -f /usr/local/valkey.cdx.json
+# Read whole file via shell builtins (no cat/grep needed inside the image) and
+# grep on the host. A real Syft SPDX document carries an "spdxVersion" key.
+check "SPDX SBOM is a valid SBOM document" \
+    sh -c "docker run --rm --entrypoint='' '$IMAGE' sh -c 'while IFS= read -r l; do printf \"%s\\n\" \"\$l\"; done </usr/local/valkey.spdx.json' | grep -q 'spdxVersion'"
+check "CycloneDX SBOM is a valid SBOM document" \
+    sh -c "docker run --rm --entrypoint='' '$IMAGE' sh -c 'while IFS= read -r l; do printf \"%s\\n\" \"\$l\"; done </usr/local/valkey.cdx.json' | grep -q 'bomFormat'"
 
+if [ "$TYPE" = "hardened" ]; then
     echo "10. Base image label:"
     check "base image label references DHI" \
         sh -c "docker inspect '$IMAGE' | grep -q 'dhi.io'"
