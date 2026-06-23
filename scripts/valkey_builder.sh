@@ -133,6 +133,73 @@ copy_artifacts() {
 }
 
 # ---------------------------------------------------------------------------
+# SBOM generation (Syft)
+# ---------------------------------------------------------------------------
+SYFT_BIN=""
+
+# install_syft — make Syft available, preferring an already-installed binary
+# and otherwise downloading it into $WORKDIR/.sbom-tools/bin. Non-fatal: on
+# failure it logs a warning and leaves SYFT_BIN empty so the package build is
+# not aborted just because an SBOM could not be produced.
+install_syft() {
+    if [[ -n "$SYFT_BIN" && -x "$SYFT_BIN" ]]; then
+        return 0
+    fi
+    if command -v syft &>/dev/null; then
+        SYFT_BIN="$(command -v syft)"
+        return 0
+    fi
+
+    local bindir="${WORKDIR}/.sbom-tools/bin"
+    mkdir -p "$bindir"
+    log_info "Installing Syft for SBOM generation..."
+    if command -v curl &>/dev/null; then
+        curl -sSfL https://get.anchore.io/syft | sh -s -- -b "$bindir" >/dev/null 2>&1 || true
+    elif command -v wget &>/dev/null; then
+        wget -qO- https://get.anchore.io/syft | sh -s -- -b "$bindir" >/dev/null 2>&1 || true
+    fi
+
+    if [[ -x "${bindir}/syft" ]]; then
+        SYFT_BIN="${bindir}/syft"
+    else
+        log_warn "Could not install Syft; SBOM will not be generated"
+        SYFT_BIN=""
+    fi
+}
+
+# generate_sbom_files SCAN_DIR OUT_SPDX OUT_CDX
+#   Generate SPDX-JSON and CycloneDX-JSON SBOMs for SCAN_DIR, excluding the
+#   packaging and VCS directories so the inventory reflects upstream Valkey
+#   components (including the vendored deps). Best-effort: if Syft is
+#   unavailable or fails, writes minimal placeholder documents so downstream
+#   packaging always finds the files and the build does not abort.
+generate_sbom_files() {
+    local scan_dir="$1"
+    local out_spdx="$2"
+    local out_cdx="$3"
+
+    install_syft
+    if [[ -n "$SYFT_BIN" ]]; then
+        log_info "Generating SBOM (SPDX + CycloneDX) from ${scan_dir} ..."
+        if "$SYFT_BIN" scan "dir:${scan_dir}" \
+            --source-name "$PACKAGE_NAME" --source-version "$VERSION" \
+            --exclude './debian' --exclude './rpm' --exclude './.git' \
+            -o "spdx-json=${out_spdx}" \
+            -o "cyclonedx-json=${out_cdx}"; then
+            return 0
+        fi
+        log_warn "Syft scan failed; writing placeholder SBOMs"
+    else
+        log_warn "Syft unavailable; writing placeholder SBOMs"
+    fi
+
+    printf '{"spdxVersion":"SPDX-2.3","SPDXID":"SPDXRef-DOCUMENT","name":"%s-%s","packages":[]}\n' \
+        "$PACKAGE_NAME" "$VERSION" > "$out_spdx"
+    printf '{"bomFormat":"CycloneDX","specVersion":"1.5","metadata":{"component":{"name":"%s","version":"%s","type":"application"}},"components":[]}\n' \
+        "$PACKAGE_NAME" "$VERSION" > "$out_cdx"
+}
+
+# ---------------------------------------------------------------------------
 # check_workdir
 # ---------------------------------------------------------------------------
 check_workdir() {
@@ -215,6 +282,13 @@ EOF
         cp -r "${BUILDER_SCRIPT_DIR}/../debian" ./
         cp -r "${BUILDER_SCRIPT_DIR}/../rpm" ./
     fi
+
+    # Generate a real SBOM (SPDX + CycloneDX) of the upstream source tree and
+    # bake it into the source tree (debian/ and rpm/) so it travels in the
+    # tarball / source package and is embedded into the built RPM/DEB packages.
+    generate_sbom_files "." "./debian/valkey.spdx.json" "./debian/valkey.cdx.json"
+    cp -f ./debian/valkey.spdx.json ./debian/valkey.cdx.json ./rpm/
+    copy_artifacts "sbom" ./debian/valkey.spdx.json ./debian/valkey.cdx.json
 
     cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
 

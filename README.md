@@ -56,6 +56,9 @@ scripts/valkey_builder.sh \
 ```
 
 Output RPMs are placed in `/tmp/BUILD/rpm/` and in the current directory under `rpm/`.
+A Syft SBOM (SPDX + CycloneDX) of the Valkey source tree is generated at build time,
+**embedded inside the package** under `/usr/share/percona-valkey/sbom/`, and also copied
+to the `sbom/` output directory.
 
 > **Note:** upstream Valkey 9.1.0 is not yet tagged, so `--branch=9.1` checks out the
 > `9.1` development branch from `valkey-io/valkey` while the resulting package is
@@ -77,6 +80,8 @@ scripts/valkey_builder.sh \
 ```
 
 Output .deb files are placed in `/tmp/BUILD/deb/` and in the current directory under `deb/`.
+The same Syft SBOM (SPDX + CycloneDX) is **embedded inside `percona-valkey-server`** under
+`/usr/share/percona-valkey/sbom/` and also copied to the `sbom/` output directory.
 
 ### Using local packaging scripts
 
@@ -151,6 +156,7 @@ sudo bash scripts/test_packages.sh --repo --repo-channel=testing
 - Redis compatibility symlinks (`redis-cli`, `redis-server`, etc.)
 - Development headers (`valkey/valkey-module.h`)
 - Logrotate configuration
+- Embedded SBOM (SPDX + CycloneDX under `/usr/share/percona-valkey/sbom/`)
 - Clean removal verification
 
 ### `test_in_docker.sh` — multi-OS Docker test matrix
