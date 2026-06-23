@@ -344,6 +344,17 @@ install -dm0755 %{buildroot}%{valkey_modules_dir}
 install -Dm0644 src/%{valkey_name}module.h %{buildroot}%{_includedir}/%{valkey_name}module.h
 install -Dm0644 %{SOURCE9} %{buildroot}%{_rpmmacrodir}/macros.%{valkey_name}
 
+# Embed the pre-generated SBOM (SPDX + CycloneDX). The build pipeline writes
+# these into the source tree's rpm/ dir; install best-effort so a build from an
+# older source tarball without the files still succeeds. The file-list entry
+# lists the directory, so the package is valid whether or not the files exist.
+install -dm0755 %{buildroot}%{_datadir}/%{name}/sbom
+for f in valkey.spdx.json valkey.cdx.json; do
+    if [ -f rpm/$f ]; then
+        install -m0644 rpm/$f %{buildroot}%{_datadir}/%{name}/sbom/$f
+    fi
+done
+
 install -Dm0640 valkey.conf %{buildroot}%{_conf_dir}/includes/valkey.defaults.conf
 install -Dm0640 sentinel.conf %{buildroot}%{_conf_dir}/includes/sentinel.defaults.conf
 
@@ -503,6 +514,9 @@ EOF
 %else
 %doc README.RHEL
 %endif
+
+# SBOM (SPDX + CycloneDX), embedded supply-chain inventory
+%{_datadir}/%{name}/
 
 %if 0%{?suse_version} > 1500
 %{_distconfdir}/logrotate.d/%{valkey_name}

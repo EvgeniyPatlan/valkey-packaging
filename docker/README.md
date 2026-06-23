@@ -199,7 +199,9 @@ Resource limits (CPU, memory, PIDs)
 Minimal base image (Debian Trixie Slim)
 Removed setuid/setgid binaries
 Health checks enabled
-SBOM generation
+SBOM generation — real SPDX + CycloneDX inventories produced by Syft at build
+time, embedded at `/usr/local/valkey.spdx.json` and `/usr/local/valkey.cdx.json`
+(both the hardened and the UBI9 image ship them)
 Uses package maintainer's default configuration
 
 ### Adjust Resource Limits

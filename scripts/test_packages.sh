@@ -1069,6 +1069,25 @@ test_dev_headers() {
     fi
 }
 
+test_sbom() {
+    section_header "Test: SBOM"
+
+    local sbom_dir=/usr/share/percona-valkey/sbom
+    assert_file_exists "$sbom_dir/valkey.spdx.json" "SPDX SBOM"
+    assert_file_exists "$sbom_dir/valkey.cdx.json" "CycloneDX SBOM"
+
+    if [[ -f "$sbom_dir/valkey.spdx.json" ]] && grep -q '"spdxVersion"' "$sbom_dir/valkey.spdx.json"; then
+        pass "SPDX SBOM is a valid SBOM document"
+    else
+        fail "SPDX SBOM is a valid SBOM document"
+    fi
+    if [[ -f "$sbom_dir/valkey.cdx.json" ]] && grep -q '"bomFormat"' "$sbom_dir/valkey.cdx.json"; then
+        pass "CycloneDX SBOM is a valid SBOM document"
+    else
+        fail "CycloneDX SBOM is a valid SBOM document"
+    fi
+}
+
 test_logrotate() {
     section_header "Test: Logrotate"
 
@@ -1311,6 +1330,7 @@ main() {
     test_compat_redis
     test_dev_headers
     test_logrotate
+    test_sbom
 
     # Stop any lingering services before removal
     if has_systemd; then

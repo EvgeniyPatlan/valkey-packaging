@@ -115,6 +115,15 @@ endif
 
 override_dh_install:
 	dh_install
+	# Embed the pre-generated SBOM (SPDX + CycloneDX) into the server package.
+	# The build pipeline writes these into debian/; best-effort so a build from
+	# an older source tree without the files still succeeds.
+	for f in valkey.spdx.json valkey.cdx.json; do \
+		if [ -f debian/$$f ]; then \
+			install -D -m 0644 debian/$$f \
+				debian/percona-valkey-server/usr/share/percona-valkey/sbom/$$f; \
+		fi; \
+	done
 ifeq ($(LUA_MODULE),yes)
 	# Lua scripting engine module (opt-in via build profile
 	# pkg.valkey.lua-module): valkey-server is built with
