@@ -1,0 +1,32 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+# Rust toolchain provided system-wide via rustup (valkey_builder.sh --bloom_deps).
+export RUSTUP_HOME ?= /usr/local/rustup
+export CARGO_HOME ?= /usr/local/cargo
+export PATH := /usr/local/cargo/bin:/usr/local/bin:$(PATH)
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+
+override_dh_auto_build:
+	# Fully offline: cargo deps are vendored into ./vendor with .cargo/config.toml.
+	cargo build --release --offline
+
+override_dh_auto_install:
+	install -d debian/percona-valkey-bloom/usr/lib/valkey/modules
+	install -m 0755 target/release/libvalkey_bloom.so \
+	    debian/percona-valkey-bloom/usr/lib/valkey/modules/libvalkey_bloom.so
+
+override_dh_fixperms:
+	dh_fixperms
+	# Valkey refuses to load a module without the execute bit; dh_fixperms
+	# normalises the .so back to 0644, so restore 0755 here.
+	chmod 0755 debian/percona-valkey-bloom/usr/lib/valkey/modules/libvalkey_bloom.so
+
+# The module build runs no tests during packaging.
+override_dh_auto_test:

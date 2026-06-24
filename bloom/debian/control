@@ -1,0 +1,31 @@
+Source: percona-valkey-bloom
+Section: database
+Priority: optional
+Maintainer: Evgeniy Patlan <evgeniy.patlan@percona.com>
+Build-Depends:
+ debhelper (>= 13),
+ dpkg-dev,
+ clang,
+ libclang-dev,
+ pkg-config,
+ ca-certificates,
+Standards-Version: 4.7.2
+Homepage: https://github.com/valkey-io/valkey-bloom
+Rules-Requires-Root: no
+
+Package: percona-valkey-bloom
+Architecture: amd64 arm64
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ percona-valkey-server (>= 9.0.0),
+Description: Bloom filter module for Percona Valkey
+ valkey-bloom provides a Bloom filter data type for Percona Valkey via the
+ libvalkey_bloom.so loadable module (BF.ADD, BF.EXISTS, BF.RESERVE, BF.INSERT,
+ BF.INFO, ...).
+ .
+ The module is installed into /usr/lib/valkey/modules. It is not loaded
+ automatically; enable it with 'loadmodule' in valkey.conf or 'MODULE LOAD'.
+ .
+ The Rust toolchain used to build this package is provided via rustup by the
+ Percona build driver and is intentionally not declared as a Build-Depends.

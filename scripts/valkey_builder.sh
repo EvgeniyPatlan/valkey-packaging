@@ -25,6 +25,11 @@ readonly DEFAULT_JSON_VERSION="1.0.2"
 readonly RAPIDJSON_REPO="https://github.com/Tencent/rapidjson.git"
 readonly RAPIDJSON_COMMIT="ebd87cb468fb4cb060b37e579718c4a4125416c1"
 
+# valkey-bloom module packaging (Rust; separate upstream source + version)
+readonly BLOOM_PACKAGE_NAME="percona-valkey-bloom"
+readonly DEFAULT_BLOOM_REPO="https://github.com/valkey-io/valkey-bloom.git"
+readonly DEFAULT_BLOOM_VERSION="1.0.1"
+
 # Absolute path to the directory containing this script
 BUILDER_SCRIPT_DIR="$(dirname "$(readlink -e "${0}")")"
 readonly BUILDER_SCRIPT_DIR
@@ -76,6 +81,15 @@ Usage: $0 [OPTIONS]
         --json_version=VER              valkey-json version (default: ${DEFAULT_JSON_VERSION})
         --json_branch=REF               valkey-json git ref (default: same as --json_version)
         --json_repo=URL                 valkey-json source repo (default: ${DEFAULT_JSON_REPO})
+        --bloom_deps                    Install valkey-bloom build deps (rustup, clang, build tools)
+        --get_bloom_sources             Fetch valkey-bloom + vendor cargo deps into an offline tarball
+        --build_bloom_src_rpm           Build the percona-valkey-bloom source RPM
+        --build_bloom_rpm               Build the percona-valkey-bloom binary RPM
+        --build_bloom_src_deb           Build the percona-valkey-bloom source DEB
+        --build_bloom_deb               Build the percona-valkey-bloom binary DEB
+        --bloom_version=VER             valkey-bloom version (default: ${DEFAULT_BLOOM_VERSION})
+        --bloom_branch=REF              valkey-bloom git ref (default: same as --bloom_version)
+        --bloom_repo=URL                valkey-bloom source repo (default: ${DEFAULT_BLOOM_REPO})
         --help                          Print usage
 Example: $0 --builddir=/tmp/BUILD --get_sources --build_src_rpm --build_rpm
          $0 --builddir=/tmp/BUILD --get_json_sources --build_json_src_deb --build_json_deb
@@ -110,6 +124,15 @@ parse_arguments() {
             --json_version=*)            JSON_VERSION="${arg#*=}" ;;
             --json_branch=*)             JSON_BRANCH="${arg#*=}" ;;
             --json_repo=*)               JSON_REPO="${arg#*=}" ;;
+            --bloom_deps=*|--bloom_deps) BLOOM_DEPS=1 ;;
+            --get_bloom_sources=*|--get_bloom_sources) BLOOM_SOURCE=1 ;;
+            --build_bloom_src_rpm=*|--build_bloom_src_rpm) BLOOM_SRPM=1 ;;
+            --build_bloom_rpm=*|--build_bloom_rpm)   BLOOM_RPM=1 ;;
+            --build_bloom_src_deb=*|--build_bloom_src_deb) BLOOM_SDEB=1 ;;
+            --build_bloom_deb=*|--build_bloom_deb)   BLOOM_DEB=1 ;;
+            --bloom_version=*)           BLOOM_VERSION="${arg#*=}" ;;
+            --bloom_branch=*)            BLOOM_BRANCH="${arg#*=}" ;;
+            --bloom_repo=*)              BLOOM_REPO="${arg#*=}" ;;
             --help)                      usage ;;
             *)                           die "Unknown option: $arg" ;;
         esac
@@ -393,6 +416,92 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# get_bloom_sources — fetch valkey-bloom, vendor cargo deps, emit offline tarball
+# ---------------------------------------------------------------------------
+get_bloom_sources() {
+    if [[ "$BLOOM_SOURCE" -eq 0 ]]; then
+        log_info "valkey-bloom sources will not be downloaded"
+        return 0
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${BLOOM_PACKAGE_NAME}-${BLOOM_VERSION}"
+    local srcdir="${WORKDIR}/${name}"
+
+    log_info "Cloning valkey-bloom ${BLOOM_BRANCH} from ${BLOOM_REPO} ..."
+    rm -rf "${srcdir}"
+    if ! git clone --depth 1 --branch "${BLOOM_BRANCH}" "${BLOOM_REPO}" "${name}"; then
+        die "Failed to clone valkey-bloom from ${BLOOM_REPO} (ref ${BLOOM_BRANCH})"
+    fi
+
+    local revision
+    revision="$(cd "${srcdir}" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+    # Vendor all cargo dependencies into the source tree so the package builds
+    # fully offline (the cargo analog of vendoring RapidJSON for json).
+    log_info "Vendoring cargo dependencies ..."
+    export RUSTUP_HOME="${RUSTUP_HOME:-/usr/local/rustup}" CARGO_HOME="${CARGO_HOME:-/usr/local/cargo}"
+    ( cd "${srcdir}" \
+        && cargo generate-lockfile \
+        && mkdir -p .cargo \
+        && cargo vendor vendor > .cargo/config.toml ) \
+        || die "cargo vendor failed (run with --bloom_deps so the Rust toolchain is installed)"
+
+    # cargo vendor records informational "*.orig" files (e.g. Cargo.toml.orig) in
+    # each crate's .cargo-checksum.json. dpkg-source's 3.0 (quilt) handling can
+    # drop those files, after which an offline cargo build fails with
+    # "failed to open file vendor/<crate>/Cargo.toml.orig". Drop the files and
+    # their checksum entries so the vendored tree stays self-consistent.
+    python3 - "${srcdir}/vendor" <<'PY'
+import json, glob, os, sys
+vroot = sys.argv[1]
+for cs in glob.glob(os.path.join(vroot, '*', '.cargo-checksum.json')):
+    with open(cs) as fh:
+        data = json.load(fh)
+    files = data.get('files', {})
+    for key in [k for k in files if k.endswith('.orig')]:
+        files.pop(key, None)
+        path = os.path.join(os.path.dirname(cs), key)
+        if os.path.exists(path):
+            os.remove(path)
+    with open(cs, 'w') as fh:
+        json.dump(data, fh)
+PY
+
+    log_info "Adding in-package README ..."
+    cp "${BUILDER_SCRIPT_DIR}/../bloom/README.packaging.md" "${srcdir}/README.packaging.md" \
+        || die "bloom/README.packaging.md is missing"
+
+    log_info "Stripping VCS metadata ..."
+    find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
+    # SBOM of the module source tree (best-effort; written to the sbom/ output dir).
+    generate_sbom_files "${srcdir}" "${WORKDIR}/bloom.spdx.json" "${WORKDIR}/bloom.cdx.json"
+    copy_artifacts "sbom" "${WORKDIR}/bloom.spdx.json" "${WORKDIR}/bloom.cdx.json"
+    rm -f "${WORKDIR}/bloom.spdx.json" "${WORKDIR}/bloom.cdx.json"
+
+    log_info "Creating ${name}.tar.gz ..."
+    tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
+        || die "Failed to create valkey-bloom source tarball"
+
+    # Properties file consumed by the Jenkins pipeline to derive the upload path.
+    cat > "${WORKDIR}/valkey-bloom.properties" <<EOF
+PRODUCT=${BLOOM_PACKAGE_NAME}
+PRODUCT_FULL=${name}
+VERSION=${BLOOM_VERSION}
+BUILD_NUMBER=${BUILD_NUMBER:-}
+BUILD_ID=${BUILD_ID:-}
+REVISION=${revision}
+UPLOAD=UPLOAD/experimental/BUILDS/valkey-bloom/${name}/${BLOOM_BRANCH}/${revision}/${BUILD_ID:-}
+EOF
+
+    copy_artifacts "source_tarball" "${name}.tar.gz"
+
+    cd "$CURDIR" || die "Cannot cd to $CURDIR"
+}
+
+# ---------------------------------------------------------------------------
 # get_system — detect OS family (rpm vs deb) and platform details
 # ---------------------------------------------------------------------------
 get_system() {
@@ -601,6 +710,53 @@ install_deps_json() {
             cmake g++ make git \
             percona-valkey-dev
     fi
+}
+
+# ---------------------------------------------------------------------------
+# install_deps_bloom — build deps for the valkey-bloom (Rust) module.
+#   Installs clang (libclang for the valkey-module crate's bindgen), the
+#   packaging tools, and the Rust toolchain via rustup into system locations
+#   so cargo is on PATH for rpmbuild/debuild. No valkey header is required.
+#   Triggered by --bloom_deps.
+# ---------------------------------------------------------------------------
+install_deps_bloom() {
+    if [[ "$BLOOM_DEPS" -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        die "Cannot install dependencies — please run as root"
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        local pkg_mgr="yum"
+        command -v dnf &>/dev/null && pkg_mgr="dnf"
+        $pkg_mgr -y install \
+            gcc gcc-c++ make git tar gzip curl ca-certificates pkgconfig python3 \
+            clang clang-devel rpm-build rpmdevtools \
+        || $pkg_mgr -y install \
+            gcc gcc-c++ make git tar gzip curl ca-certificates pkgconfig python3 \
+            clang rpm-build rpmdevtools
+    else
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get -y install \
+            build-essential debhelper devscripts dh-exec dpkg-dev fakeroot \
+            git curl ca-certificates wget pkg-config python3 \
+            clang libclang-dev
+    fi
+
+    # Rust toolchain via rustup, installed system-wide so the rustup proxies
+    # (cargo/rustc) resolve the toolchain via RUSTUP_HOME for any build user.
+    export RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
+    if [[ ! -x /usr/local/cargo/bin/cargo ]]; then
+        curl -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain stable
+    fi
+    ln -sf /usr/local/cargo/bin/cargo  /usr/local/bin/cargo
+    ln -sf /usr/local/cargo/bin/rustc  /usr/local/bin/rustc
+    ln -sf /usr/local/cargo/bin/rustup /usr/local/bin/rustup
+    RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo cargo --version \
+        || die "cargo not available after rustup install"
 }
 
 # ---------------------------------------------------------------------------
@@ -931,6 +1087,139 @@ build_json_deb() {
     copy_artifacts "deb" "${name}_${ver}-"*_*.deb
 }
 
+# ---------------------------------------------------------------------------
+# build_bloom_srpm — source RPM for percona-valkey-bloom
+# ---------------------------------------------------------------------------
+build_bloom_srpm() {
+    if [[ "$BLOOM_SRPM" -eq 0 ]]; then
+        log_info "valkey-bloom SRC RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build src rpm on a Debian-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    find_and_copy_artifact "source_tarball" "${BLOOM_PACKAGE_NAME}*.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    rm -fr bloom_rpmbuild
+    mkdir -vp bloom_rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
+
+    cp -av "${BUILDER_SCRIPT_DIR}/../bloom/rpm/${BLOOM_PACKAGE_NAME}.spec" bloom_rpmbuild/SPECS/
+    mv -fv "$tarfile" bloom_rpmbuild/SOURCES/
+
+    sed -i "s/^Version:.*$/Version:        ${BLOOM_VERSION}/" \
+        "bloom_rpmbuild/SPECS/${BLOOM_PACKAGE_NAME}.spec"
+
+    rpmbuild -bs --define "_topdir ${WORKDIR}/bloom_rpmbuild" --define "dist .generic" \
+        "bloom_rpmbuild/SPECS/${BLOOM_PACKAGE_NAME}.spec"
+
+    copy_artifacts "bloom_srpm" bloom_rpmbuild/SRPMS/*.src.rpm
+}
+
+# ---------------------------------------------------------------------------
+# build_bloom_rpm — binary RPM for percona-valkey-bloom
+# ---------------------------------------------------------------------------
+build_bloom_rpm() {
+    if [[ "$BLOOM_RPM" -eq 0 ]]; then
+        log_info "valkey-bloom RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build rpm on a Debian-based system"
+    fi
+
+    find_and_copy_artifact "bloom_srpm" "${BLOOM_PACKAGE_NAME}*.src.rpm"
+    local src_rpm="$FOUND_FILE"
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    rm -fr bloom_rb
+    mkdir -vp bloom_rb/{SOURCES,SPECS,BUILD,SRPMS,RPMS,BUILDROOT}
+    cp "$src_rpm" bloom_rb/SRPMS/
+
+    rpmbuild --define "_topdir ${WORKDIR}/bloom_rb" --define "dist .${OS_NAME}" \
+        --rebuild "bloom_rb/SRPMS/${src_rpm}"
+
+    copy_artifacts "rpm" bloom_rb/RPMS/*/*.rpm
+}
+
+# ---------------------------------------------------------------------------
+# build_bloom_source_deb — source DEB for percona-valkey-bloom
+# ---------------------------------------------------------------------------
+build_bloom_source_deb() {
+    if [[ "$BLOOM_SDEB" -eq 0 ]]; then
+        log_info "valkey-bloom source deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build source deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${BLOOM_PACKAGE_NAME}"
+    local ver="${BLOOM_VERSION}"
+
+    rm -rf "${name}-${ver}" "${name}_${ver}".orig.tar.gz "${name}_${ver}-"*
+
+    find_and_copy_artifact "source_tarball" "${name}*.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    cp "$tarfile" "${name}_${ver}.orig.tar.gz"
+    tar xf "$tarfile"
+
+    cp -r "${BUILDER_SCRIPT_DIR}/../bloom/debian" "${name}-${ver}/debian"
+    chmod +x "${name}-${ver}/debian/rules"
+
+    ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
+        || die "bloom source deb build failed"
+
+    copy_artifacts "bloom_source_deb" "${name}_${ver}-"*.dsc
+    copy_artifacts "bloom_source_deb" "${name}_${ver}.orig.tar.gz"
+    copy_artifacts "bloom_source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# build_bloom_deb — binary DEB for percona-valkey-bloom
+# ---------------------------------------------------------------------------
+build_bloom_deb() {
+    if [[ "$BLOOM_DEB" -eq 0 ]]; then
+        log_info "valkey-bloom deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${BLOOM_PACKAGE_NAME}"
+    local ver="${BLOOM_VERSION}"
+
+    for ext in 'dsc' 'orig.tar.gz'; do
+        find_and_copy_artifact "bloom_source_deb" "${name}_${ver}*.${ext}"
+    done
+    find_and_copy_artifact "bloom_source_deb" "${name}_${ver}*.debian.tar.*" || true
+
+    rm -rf "${name}-${ver}"
+    local dsc
+    dsc="$(basename "$(find . -maxdepth 1 -name "${name}_${ver}*.dsc" | sort | tail -n1)")"
+    [ -n "$dsc" ] || die "bloom dsc not found — run --build_bloom_src_deb first"
+    dpkg-source -x "$dsc" "${name}-${ver}"
+
+    ( cd "${name}-${ver}" && dpkg-buildpackage -b -us -uc ) \
+        || die "bloom binary deb build failed"
+
+    copy_artifacts "deb" "${name}_${ver}-"*_*.deb
+}
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -961,11 +1250,21 @@ JSON_DEB=0
 JSON_REPO="$DEFAULT_JSON_REPO"
 JSON_VERSION="$DEFAULT_JSON_VERSION"
 JSON_BRANCH=""
+BLOOM_DEPS=0
+BLOOM_SOURCE=0
+BLOOM_SRPM=0
+BLOOM_RPM=0
+BLOOM_SDEB=0
+BLOOM_DEB=0
+BLOOM_REPO="$DEFAULT_BLOOM_REPO"
+BLOOM_VERSION="$DEFAULT_BLOOM_VERSION"
+BLOOM_BRANCH=""
 
 parse_arguments "$@"
 
-# Default the json git ref to the json version (a tag) unless overridden.
+# Default the json/bloom git ref to the module version (a tag) unless overridden.
 JSON_BRANCH="${JSON_BRANCH:-$JSON_VERSION}"
+BLOOM_BRANCH="${BLOOM_BRANCH:-$BLOOM_VERSION}"
 
 # PRODUCT_FULL is set after parsing so --version can override; exported for child processes
 export PRODUCT_FULL="${PRODUCT}-${VERSION}-${RELEASE}"
@@ -978,8 +1277,10 @@ check_workdir
 get_system
 install_deps
 install_deps_json
+install_deps_bloom
 get_sources
 get_json_sources
+get_bloom_sources
 build_srpm
 build_source_deb
 build_rpm
@@ -988,3 +1289,7 @@ build_json_srpm
 build_json_rpm
 build_json_source_deb
 build_json_deb
+build_bloom_srpm
+build_bloom_rpm
+build_bloom_source_deb
+build_bloom_deb
