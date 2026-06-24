@@ -620,6 +620,70 @@ build_rpm() {
 }
 
 # ---------------------------------------------------------------------------
+# build_json_srpm — source RPM for percona-valkey-json
+# ---------------------------------------------------------------------------
+build_json_srpm() {
+    if [[ "$JSON_SRPM" -eq 0 ]]; then
+        log_info "valkey-json SRC RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build src rpm on a Debian-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    find_and_copy_artifact "source_tarball" "${JSON_PACKAGE_NAME}*.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    rm -fr json_rpmbuild
+    mkdir -vp json_rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
+
+    cp -av "${BUILDER_SCRIPT_DIR}/../json/rpm/${JSON_PACKAGE_NAME}.spec" json_rpmbuild/SPECS/
+    mv -fv "$tarfile" json_rpmbuild/SOURCES/
+
+    # Allow --json_version to flow through to the package version.
+    sed -i "s/^Version:.*$/Version:        ${JSON_VERSION}/" \
+        "json_rpmbuild/SPECS/${JSON_PACKAGE_NAME}.spec"
+
+    rpmbuild -bs --define "_topdir ${WORKDIR}/json_rpmbuild" --define "dist .generic" \
+        "json_rpmbuild/SPECS/${JSON_PACKAGE_NAME}.spec"
+
+    # Keep json SRPMs in a dedicated dir so the server build_rpm glob
+    # (percona-valkey*.src.rpm) never picks them up by mistake.
+    copy_artifacts "json_srpm" json_rpmbuild/SRPMS/*.src.rpm
+}
+
+# ---------------------------------------------------------------------------
+# build_json_rpm — binary RPM for percona-valkey-json
+# ---------------------------------------------------------------------------
+build_json_rpm() {
+    if [[ "$JSON_RPM" -eq 0 ]]; then
+        log_info "valkey-json RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build rpm on a Debian-based system"
+    fi
+
+    find_and_copy_artifact "json_srpm" "${JSON_PACKAGE_NAME}*.src.rpm"
+    local src_rpm="$FOUND_FILE"
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    rm -fr json_rb
+    mkdir -vp json_rb/{SOURCES,SPECS,BUILD,SRPMS,RPMS,BUILDROOT}
+    cp "$src_rpm" json_rb/SRPMS/
+
+    rpmbuild --define "_topdir ${WORKDIR}/json_rb" --define "dist .${OS_NAME}" \
+        --rebuild "json_rb/SRPMS/${src_rpm}"
+
+    copy_artifacts "rpm" json_rb/RPMS/*/*.rpm
+}
+
+# ---------------------------------------------------------------------------
 # build_source_deb
 # ---------------------------------------------------------------------------
 build_source_deb() {
@@ -783,3 +847,5 @@ build_srpm
 build_source_deb
 build_rpm
 build_deb
+build_json_srpm
+build_json_rpm
