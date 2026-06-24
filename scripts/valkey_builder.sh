@@ -16,6 +16,15 @@ readonly DEFAULT_RELEASE="1"
 readonly DEFAULT_BRANCH="9.1"
 readonly DEFAULT_REPO="https://github.com/valkey-io/valkey.git"
 
+# valkey-json module packaging (separate upstream source + version)
+readonly JSON_PACKAGE_NAME="percona-valkey-json"
+readonly DEFAULT_JSON_REPO="https://github.com/valkey-io/valkey-json.git"
+readonly DEFAULT_JSON_VERSION="1.0.2"
+# RapidJSON is vendored into the source tarball so the module builds offline
+# (upstream CMake otherwise FetchContent-clones it from GitHub at build time).
+readonly RAPIDJSON_REPO="https://github.com/Tencent/rapidjson.git"
+readonly RAPIDJSON_COMMIT="ebd87cb468fb4cb060b37e579718c4a4125416c1"
+
 # Absolute path to the directory containing this script
 BUILDER_SCRIPT_DIR="$(dirname "$(readlink -e "${0}")")"
 readonly BUILDER_SCRIPT_DIR
@@ -58,8 +67,17 @@ Usage: $0 [OPTIONS]
         --version=VER                   Version string (default: ${DEFAULT_VERSION})
         --release=REL                   Release number (default: ${DEFAULT_RELEASE})
         --use_local_packaging_script    Use local packaging scripts (located in ${BUILDER_SCRIPT_DIR}/../{debian,rpm})
+        --get_json_sources              Fetch valkey-json + vendor RapidJSON into an offline tarball
+        --build_json_src_rpm            Build the percona-valkey-json source RPM
+        --build_json_rpm                Build the percona-valkey-json binary RPM
+        --build_json_src_deb            Build the percona-valkey-json source DEB
+        --build_json_deb                Build the percona-valkey-json binary DEB
+        --json_version=VER              valkey-json version (default: ${DEFAULT_JSON_VERSION})
+        --json_branch=REF               valkey-json git ref (default: same as --json_version)
+        --json_repo=URL                 valkey-json source repo (default: ${DEFAULT_JSON_REPO})
         --help                          Print usage
 Example: $0 --builddir=/tmp/BUILD --get_sources --build_src_rpm --build_rpm
+         $0 --builddir=/tmp/BUILD --get_json_sources --build_json_src_deb --build_json_deb
 EOF
     exit 0
 }
@@ -82,6 +100,14 @@ parse_arguments() {
             --release=*)                 RELEASE="${arg#*=}" ;;
             --install_deps=*|--install_deps) INSTALL=1 ;;
             --use_local_packaging_script=*|--use_local_packaging_script) LOCAL_BUILD=1 ;;
+            --get_json_sources=*|--get_json_sources) JSON_SOURCE=1 ;;
+            --build_json_src_rpm=*|--build_json_src_rpm) JSON_SRPM=1 ;;
+            --build_json_rpm=*|--build_json_rpm)     JSON_RPM=1 ;;
+            --build_json_src_deb=*|--build_json_src_deb) JSON_SDEB=1 ;;
+            --build_json_deb=*|--build_json_deb)     JSON_DEB=1 ;;
+            --json_version=*)            JSON_VERSION="${arg#*=}" ;;
+            --json_branch=*)             JSON_BRANCH="${arg#*=}" ;;
+            --json_repo=*)               JSON_REPO="${arg#*=}" ;;
             --help)                      usage ;;
             *)                           die "Unknown option: $arg" ;;
         esac
@@ -297,6 +323,54 @@ EOF
     echo "UPLOAD=UPLOAD/experimental/BUILDS/${PRODUCT}/${product_full}/${BRANCH}/${revision}/${BUILD_ID:-}" >> valkey.properties
 
     copy_artifacts "source_tarball" "${product_full}.tar.gz"
+
+    cd "$CURDIR" || die "Cannot cd to $CURDIR"
+}
+
+# ---------------------------------------------------------------------------
+# get_json_sources — fetch valkey-json, vendor RapidJSON, emit offline tarball
+# ---------------------------------------------------------------------------
+get_json_sources() {
+    if [[ "$JSON_SOURCE" -eq 0 ]]; then
+        log_info "valkey-json sources will not be downloaded"
+        return 0
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${JSON_PACKAGE_NAME}-${JSON_VERSION}"
+    local srcdir="${WORKDIR}/${name}"
+
+    log_info "Cloning valkey-json ${JSON_BRANCH} from ${JSON_REPO} ..."
+    rm -rf "${srcdir}"
+    if ! git clone --depth 1 --branch "${JSON_BRANCH}" "${JSON_REPO}" "${name}"; then
+        die "Failed to clone valkey-json from ${JSON_REPO} (ref ${JSON_BRANCH})"
+    fi
+
+    log_info "Vendoring RapidJSON ${RAPIDJSON_COMMIT} ..."
+    git clone "${RAPIDJSON_REPO}" "${srcdir}/deps/rapidjson" \
+        || die "Failed to clone RapidJSON"
+    ( cd "${srcdir}/deps/rapidjson" && git checkout -q "${RAPIDJSON_COMMIT}" ) \
+        || die "Failed to check out RapidJSON ${RAPIDJSON_COMMIT}"
+
+    log_info "Adding in-package README ..."
+    cp "${BUILDER_SCRIPT_DIR}/../json/README.packaging.md" "${srcdir}/README.packaging.md" \
+        || die "json/README.packaging.md is missing"
+
+    log_info "Stripping VCS metadata ..."
+    find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
+    # SBOM of the module source tree (best-effort; written to the sbom/ output
+    # dir, not into the tarball). Consistent with the server packages.
+    generate_sbom_files "${srcdir}" "${WORKDIR}/json.spdx.json" "${WORKDIR}/json.cdx.json"
+    copy_artifacts "sbom" "${WORKDIR}/json.spdx.json" "${WORKDIR}/json.cdx.json"
+    rm -f "${WORKDIR}/json.spdx.json" "${WORKDIR}/json.cdx.json"
+
+    log_info "Creating ${name}.tar.gz ..."
+    tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
+        || die "Failed to create valkey-json source tarball"
+
+    copy_artifacts "source_tarball" "${name}.tar.gz"
 
     cd "$CURDIR" || die "Cannot cd to $CURDIR"
 }
@@ -679,8 +753,19 @@ REPO="$DEFAULT_REPO"
 VERSION="$DEFAULT_VERSION"
 RELEASE="$DEFAULT_RELEASE"
 LOCAL_BUILD=0
+JSON_SOURCE=0
+JSON_SRPM=0
+JSON_RPM=0
+JSON_SDEB=0
+JSON_DEB=0
+JSON_REPO="$DEFAULT_JSON_REPO"
+JSON_VERSION="$DEFAULT_JSON_VERSION"
+JSON_BRANCH=""
 
 parse_arguments "$@"
+
+# Default the json git ref to the json version (a tag) unless overridden.
+JSON_BRANCH="${JSON_BRANCH:-$JSON_VERSION}"
 
 # PRODUCT_FULL is set after parsing so --version can override; exported for child processes
 export PRODUCT_FULL="${PRODUCT}-${VERSION}-${RELEASE}"
@@ -693,6 +778,7 @@ check_workdir
 get_system
 install_deps
 get_sources
+get_json_sources
 build_srpm
 build_source_deb
 build_rpm
