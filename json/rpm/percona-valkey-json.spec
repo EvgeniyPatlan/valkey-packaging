@@ -1,0 +1,63 @@
+%global valkey_name        valkey
+%global valkey_modules_dir %{_libdir}/%{valkey_name}/modules
+%global valkey_modules_abi 1
+
+Name:           percona-valkey-json
+Version:        1.0.2
+Release:        1%{?dist}
+Summary:        Native JSON data type module for Percona Valkey
+
+License:        BSD-3-Clause
+URL:            https://github.com/valkey-io/valkey-json
+Source0:        percona-valkey-json-%{version}.tar.gz
+
+BuildRequires:  gcc-c++
+BuildRequires:  cmake >= 3.17
+BuildRequires:  make
+BuildRequires:  git
+# Provides /usr/include/valkeymodule.h; building against the server's own
+# header keeps the module ABI-aligned with the installed server.
+BuildRequires:  percona-valkey-devel
+
+# The module is loaded by valkey-server, so it requires the server package and
+# the matching module ABI that percona-valkey-server provides.
+Requires:       percona-valkey-server%{?_isa}
+Requires:       valkey(modules_abi)%{?_isa} = %{valkey_modules_abi}
+
+%description
+valkey-json provides native JSON support for Percona Valkey via the libjson.so
+loadable module, implementing the JSON.* command family with JSONPath queries.
+The module is installed into the Valkey module directory; it is not loaded
+automatically. Enable it with 'loadmodule' in valkey.conf or 'MODULE LOAD' at
+runtime.
+
+%prep
+%autosetup -n percona-valkey-json-%{version}
+
+%build
+# Offline release build: BUILD_RELEASE=ON with integration tests OFF and a
+# provided valkeymodule.h means CMake clones neither valkey-server nor (via
+# the RapidJSON source-dir override) RapidJSON.
+cmake -S . -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_RELEASE=ON \
+    -DENABLE_UNIT_TESTS=OFF \
+    -DENABLE_INTEGRATION_TESTS=OFF \
+    -DVALKEY_MODULE_H_PATH=%{_includedir}/%{valkey_name}module.h \
+    -DFETCHCONTENT_SOURCE_DIR_RAPIDJSON=$(pwd)/deps/rapidjson
+cmake --build build -j$(nproc)
+
+%install
+# The modules directory itself is owned by percona-valkey-server; this package
+# only installs the module file into it.
+install -d %{buildroot}%{valkey_modules_dir}
+install -m 0755 build/src/libjson.so %{buildroot}%{valkey_modules_dir}/libjson.so
+
+%files
+%license LICENSE
+%doc README.md README.packaging.md
+%{valkey_modules_dir}/libjson.so
+
+%changelog
+* Tue Jun 24 2026 Percona Build <info@percona.com> - 1.0.2-1
+- Initial percona-valkey-json package (upstream valkey-json 1.0.2)
