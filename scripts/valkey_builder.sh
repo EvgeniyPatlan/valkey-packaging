@@ -799,6 +799,80 @@ build_deb() {
     copy_artifacts "deb" "$WORKDIR"/*.*deb
 }
 
+# ---------------------------------------------------------------------------
+# build_json_source_deb — source DEB for percona-valkey-json
+# ---------------------------------------------------------------------------
+build_json_source_deb() {
+    if [[ "$JSON_SDEB" -eq 0 ]]; then
+        log_info "valkey-json source deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build source deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${JSON_PACKAGE_NAME}"
+    local ver="${JSON_VERSION}"
+
+    rm -rf "${name}-${ver}" "${name}_${ver}".orig.tar.gz "${name}_${ver}-"*
+
+    find_and_copy_artifact "source_tarball" "${name}*.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    # dpkg-source expects the orig tarball name to match the source package.
+    cp "$tarfile" "${name}_${ver}.orig.tar.gz"
+    tar xf "$tarfile"
+
+    # debian/ (including patches/) comes from this repo's json/ tree.
+    cp -r "${BUILDER_SCRIPT_DIR}/../json/debian" "${name}-${ver}/debian"
+    chmod +x "${name}-${ver}/debian/rules"
+
+    ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
+        || die "json source deb build failed"
+
+    copy_artifacts "json_source_deb" "${name}_${ver}-"*.dsc
+    copy_artifacts "json_source_deb" "${name}_${ver}.orig.tar.gz"
+    copy_artifacts "json_source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# build_json_deb — binary DEB for percona-valkey-json
+# ---------------------------------------------------------------------------
+build_json_deb() {
+    if [[ "$JSON_DEB" -eq 0 ]]; then
+        log_info "valkey-json deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${JSON_PACKAGE_NAME}"
+    local ver="${JSON_VERSION}"
+
+    for ext in 'dsc' 'orig.tar.gz'; do
+        find_and_copy_artifact "json_source_deb" "${name}_${ver}*.${ext}"
+    done
+    find_and_copy_artifact "json_source_deb" "${name}_${ver}*.debian.tar.*" || true
+
+    rm -rf "${name}-${ver}"
+    local dsc
+    dsc="$(basename "$(find . -maxdepth 1 -name "${name}_${ver}*.dsc" | sort | tail -n1)")"
+    [ -n "$dsc" ] || die "json dsc not found — run --build_json_src_deb first"
+    dpkg-source -x "$dsc" "${name}-${ver}"
+
+    ( cd "${name}-${ver}" && dpkg-buildpackage -b -us -uc ) \
+        || die "json binary deb build failed"
+
+    copy_artifacts "deb" "${name}_${ver}-"*_*.deb
+}
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -852,3 +926,5 @@ build_rpm
 build_deb
 build_json_srpm
 build_json_rpm
+build_json_source_deb
+build_json_deb
