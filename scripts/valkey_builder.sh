@@ -641,6 +641,9 @@ build_json_srpm() {
     mkdir -vp json_rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
 
     cp -av "${BUILDER_SCRIPT_DIR}/../json/rpm/${JSON_PACKAGE_NAME}.spec" json_rpmbuild/SPECS/
+    # Spec patches are kept in json/debian/patches (single source of truth, shared
+    # with the DEB quilt series); copy them next to the tarball for rpmbuild.
+    cp -av "${BUILDER_SCRIPT_DIR}/../json/debian/patches/"*.patch json_rpmbuild/SOURCES/
     mv -fv "$tarfile" json_rpmbuild/SOURCES/
 
     # Allow --json_version to flow through to the package version.

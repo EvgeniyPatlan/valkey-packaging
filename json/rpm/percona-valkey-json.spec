@@ -10,13 +10,15 @@ Summary:        Native JSON data type module for Percona Valkey
 License:        BSD-3-Clause
 URL:            https://github.com/valkey-io/valkey-json
 Source0:        percona-valkey-json-%{version}.tar.gz
+# Build against the system valkeymodule.h instead of cloning valkey-io/valkey
+# (valkey-json 1.0.2 has no build-time switch for this).
+Patch0:         0001-build-against-system-valkeymodule-h.patch
 
 BuildRequires:  gcc-c++
 BuildRequires:  cmake >= 3.17
 BuildRequires:  make
-BuildRequires:  git
-# Provides /usr/include/valkeymodule.h; building against the server's own
-# header keeps the module ABI-aligned with the installed server.
+# Provides /usr/include/valkeymodule.h; building against the server's own header
+# keeps the module ABI-aligned with the installed server (no valkey clone).
 BuildRequires:  percona-valkey-devel
 
 # The module is loaded by valkey-server, so it requires the server package and
@@ -32,12 +34,19 @@ automatically. Enable it with 'loadmodule' in valkey.conf or 'MODULE LOAD' at
 runtime.
 
 %prep
-%autosetup -n percona-valkey-json-%{version}
+%autosetup -p1 -n percona-valkey-json-%{version}
 
 %build
-# Offline release build: BUILD_RELEASE=ON with integration tests OFF and a
-# provided valkeymodule.h means CMake clones neither valkey-server nor (via
-# the RapidJSON source-dir override) RapidJSON.
+# valkey-json compiles with -Wno-format (upstream CMakeLists), which cancels
+# the distro's -Wformat and makes -Werror=format-security fail as
+# "'-Wformat-security' ignored without '-Wformat'". Strip that one flag from
+# the injected build flags (format hardening is moot when -Wformat is disabled).
+export CFLAGS="$(echo "${CFLAGS-}" | sed -e 's/-Werror=format-security//g')"
+export CXXFLAGS="$(echo "${CXXFLAGS-}" | sed -e 's/-Werror=format-security//g')"
+
+# Fully offline release build: the Patch0 change makes CMake copy the system
+# valkeymodule.h (VALKEY_MODULE_H_PATH) instead of cloning valkey-io/valkey, and
+# the RapidJSON source-dir override uses the vendored copy instead of cloning it.
 cmake -S . -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_RELEASE=ON \
