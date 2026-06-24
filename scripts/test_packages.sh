@@ -1140,6 +1140,66 @@ test_clean_removal() {
 }
 
 ###############################################################################
+# JSON module (percona-valkey-json)
+###############################################################################
+test_json_module() {
+    section_header "Test: JSON module (percona-valkey-json)"
+
+    local module_dir module_path
+    if [[ "$OS_FAMILY" == "rpm" ]]; then
+        module_dir="$(rpm --eval %{_libdir})/valkey/modules"
+    else
+        module_dir="/usr/lib/valkey/modules"
+    fi
+    module_path="${module_dir}/libjson.so"
+
+    # Auto-skip when the JSON package is not part of this test run.
+    if [[ ! -f "$module_path" ]]; then
+        skip "percona-valkey-json not installed — skipping JSON module tests"
+        return
+    fi
+
+    assert_file_exists "$module_path" "libjson.so installed in module dir"
+
+    # Launch a throwaway server with the module loaded, independent of systemd
+    # so this also works in minimal containers.
+    local port=16399
+    local datadir
+    datadir="$(mktemp -d)"
+    valkey-server --port "$port" --daemonize yes --loadmodule "$module_path" \
+        --dir "$datadir" --logfile "$datadir/server.log" --save '' --appendonly no \
+        >/dev/null 2>&1 || true
+
+    local up=0 i
+    for i in $(seq 1 15); do
+        if [[ "$(valkey-cli -p "$port" PING 2>/dev/null)" == "PONG" ]]; then up=1; break; fi
+        sleep 1
+    done
+
+    if [[ "$up" -ne 1 ]]; then
+        fail "throwaway valkey-server with libjson.so started"
+        tail -5 "$datadir/server.log" 2>/dev/null || true
+        rm -rf "$datadir"
+        return
+    fi
+    pass "valkey-server loaded libjson.so"
+
+    assert_command_output_contains "MODULE LIST shows json" "json" \
+        valkey-cli -p "$port" MODULE LIST
+
+    # Functional JSON.* round-trip
+    assert_command_output_contains "JSON.SET stores a document" "OK" \
+        valkey-cli -p "$port" JSON.SET jsontest '$' '{"a":1,"b":[1,2,3]}'
+    assert_command_output_contains "JSON.GET reads a path" "1" \
+        valkey-cli -p "$port" JSON.GET jsontest '$.a'
+    assert_command_output_contains "JSON.ARRLEN counts an array" "3" \
+        valkey-cli -p "$port" JSON.ARRLEN jsontest '$.b'
+
+    valkey-cli -p "$port" SHUTDOWN NOSAVE >/dev/null 2>&1 || true
+    rm -rf "$datadir"
+}
+
+###############################################################################
 # Summary
 ###############################################################################
 print_summary() {
@@ -1331,6 +1391,7 @@ main() {
     test_dev_headers
     test_logrotate
     test_sbom
+    test_json_module
 
     # Stop any lingering services before removal
     if has_systemd; then
