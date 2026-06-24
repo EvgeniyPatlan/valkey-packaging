@@ -21,9 +21,9 @@ BuildRequires:  make
 # keeps the module ABI-aligned with the installed server (no valkey clone).
 BuildRequires:  percona-valkey-devel
 
-# The module is loaded by valkey-server, so it requires the server package and
-# the matching module ABI that percona-valkey-server provides.
-Requires:       percona-valkey-server%{?_isa}
+# The module is loaded by the server, so it requires the server package (named
+# "percona-valkey" on RPM) and the matching module ABI it provides.
+Requires:       percona-valkey%{?_isa}
 Requires:       valkey(modules_abi)%{?_isa} = %{valkey_modules_abi}
 
 %description
