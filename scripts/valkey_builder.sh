@@ -67,6 +67,7 @@ Usage: $0 [OPTIONS]
         --version=VER                   Version string (default: ${DEFAULT_VERSION})
         --release=REL                   Release number (default: ${DEFAULT_RELEASE})
         --use_local_packaging_script    Use local packaging scripts (located in ${BUILDER_SCRIPT_DIR}/../{debian,rpm})
+        --json_deps                     Install valkey-json build deps (Percona repo, percona-valkey-dev(el), cmake, g++)
         --get_json_sources              Fetch valkey-json + vendor RapidJSON into an offline tarball
         --build_json_src_rpm            Build the percona-valkey-json source RPM
         --build_json_rpm                Build the percona-valkey-json binary RPM
@@ -100,6 +101,7 @@ parse_arguments() {
             --release=*)                 RELEASE="${arg#*=}" ;;
             --install_deps=*|--install_deps) INSTALL=1 ;;
             --use_local_packaging_script=*|--use_local_packaging_script) LOCAL_BUILD=1 ;;
+            --json_deps=*|--json_deps)   JSON_DEPS=1 ;;
             --get_json_sources=*|--get_json_sources) JSON_SOURCE=1 ;;
             --build_json_src_rpm=*|--build_json_src_rpm) JSON_SRPM=1 ;;
             --build_json_rpm=*|--build_json_rpm)     JSON_RPM=1 ;;
@@ -347,6 +349,9 @@ get_json_sources() {
         die "Failed to clone valkey-json from ${JSON_REPO} (ref ${JSON_BRANCH})"
     fi
 
+    local revision
+    revision="$(cd "${srcdir}" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
     log_info "Vendoring RapidJSON ${RAPIDJSON_COMMIT} ..."
     git clone "${RAPIDJSON_REPO}" "${srcdir}/deps/rapidjson" \
         || die "Failed to clone RapidJSON"
@@ -369,6 +374,18 @@ get_json_sources() {
     log_info "Creating ${name}.tar.gz ..."
     tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
         || die "Failed to create valkey-json source tarball"
+
+    # Properties file consumed by the Jenkins pipeline to derive the upload path
+    # (mirrors the server's valkey.properties).
+    cat > "${WORKDIR}/valkey-json.properties" <<EOF
+PRODUCT=${JSON_PACKAGE_NAME}
+PRODUCT_FULL=${name}
+VERSION=${JSON_VERSION}
+BUILD_NUMBER=${BUILD_NUMBER:-}
+BUILD_ID=${BUILD_ID:-}
+REVISION=${revision}
+UPLOAD=UPLOAD/experimental/BUILDS/valkey-json/${name}/${JSON_BRANCH}/${revision}/${BUILD_ID:-}
+EOF
 
     copy_artifacts "source_tarball" "${name}.tar.gz"
 
@@ -542,6 +559,47 @@ install_deps_deb() {
         mk-build-deps --install --remove \
             --tool="apt-get -o Debug::pkgProblemResolver=yes --no-install-recommends --yes" \
             debian/control || log_warn "mk-build-deps reported issues (non-critical)"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# install_deps_json — build deps for the valkey-json module.
+#   The module compiles against the system valkeymodule.h shipped by
+#   percona-valkey-dev(el), so this sets up the Percona repo (channel from
+#   VALKEY_REPO_CHANNEL, default "testing") and installs that package plus the
+#   C++ toolchain. Triggered by --json_deps.
+# ---------------------------------------------------------------------------
+install_deps_json() {
+    if [[ "$JSON_DEPS" -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        die "Cannot install dependencies — please run as root"
+    fi
+
+    local channel="${VALKEY_REPO_CHANNEL:-testing}"
+
+    if [[ "$OS" == "rpm" ]]; then
+        local pkg_mgr="yum"
+        command -v dnf &>/dev/null && pkg_mgr="dnf"
+        $pkg_mgr -y install https://repo.percona.com/yum/percona-release-latest.noarch.rpm
+        percona-release enable-only valkey "${channel}" || percona-release enable valkey "${channel}"
+        $pkg_mgr -y install \
+            gcc-c++ cmake make git tar gzip rpm-build rpmdevtools \
+            percona-valkey-devel
+    else
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get -y install wget ca-certificates gnupg lsb-release
+        wget -qO /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb
+        dpkg -i /tmp/percona-release.deb || apt-get install -f -y
+        percona-release enable-only valkey "${channel}" || percona-release enable valkey "${channel}"
+        apt-get update
+        apt-get -y install \
+            debhelper devscripts dh-exec dpkg-dev fakeroot \
+            cmake g++ make git \
+            percona-valkey-dev
     fi
 }
 
@@ -894,6 +952,7 @@ REPO="$DEFAULT_REPO"
 VERSION="$DEFAULT_VERSION"
 RELEASE="$DEFAULT_RELEASE"
 LOCAL_BUILD=0
+JSON_DEPS=0
 JSON_SOURCE=0
 JSON_SRPM=0
 JSON_RPM=0
@@ -918,6 +977,7 @@ fi
 check_workdir
 get_system
 install_deps
+install_deps_json
 get_sources
 get_json_sources
 build_srpm
