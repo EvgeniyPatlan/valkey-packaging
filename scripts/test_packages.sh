@@ -1200,6 +1200,62 @@ test_json_module() {
 }
 
 ###############################################################################
+# Bloom module (percona-valkey-bloom)
+###############################################################################
+test_bloom_module() {
+    section_header "Test: Bloom module (percona-valkey-bloom)"
+
+    local module_dir module_path
+    if [[ "$OS_FAMILY" == "rpm" ]]; then
+        module_dir="$(rpm --eval %{_libdir})/valkey/modules"
+    else
+        module_dir="/usr/lib/valkey/modules"
+    fi
+    module_path="${module_dir}/libvalkey_bloom.so"
+
+    # Auto-skip when the Bloom package is not part of this test run.
+    if [[ ! -f "$module_path" ]]; then
+        skip "percona-valkey-bloom not installed — skipping Bloom module tests"
+        return
+    fi
+
+    assert_file_exists "$module_path" "libvalkey_bloom.so installed in module dir"
+
+    local port=16398
+    local datadir
+    datadir="$(mktemp -d)"
+    valkey-server --port "$port" --daemonize yes --loadmodule "$module_path" \
+        --dir "$datadir" --logfile "$datadir/server.log" --save '' --appendonly no \
+        >/dev/null 2>&1 || true
+
+    local up=0 i
+    for i in $(seq 1 15); do
+        if [[ "$(valkey-cli -p "$port" PING 2>/dev/null)" == "PONG" ]]; then up=1; break; fi
+        sleep 1
+    done
+
+    if [[ "$up" -ne 1 ]]; then
+        fail "throwaway valkey-server with libvalkey_bloom.so started"
+        tail -5 "$datadir/server.log" 2>/dev/null || true
+        rm -rf "$datadir"
+        return
+    fi
+    pass "valkey-server loaded libvalkey_bloom.so"
+
+    assert_command_output_contains "MODULE LIST shows bf" "bf" \
+        valkey-cli -p "$port" MODULE LIST
+
+    # Functional BF.* round-trip
+    assert_command_output_contains "BF.ADD adds an item" "1" \
+        valkey-cli -p "$port" BF.ADD bloomtest item1
+    assert_command_output_contains "BF.EXISTS finds the item" "1" \
+        valkey-cli -p "$port" BF.EXISTS bloomtest item1
+
+    valkey-cli -p "$port" SHUTDOWN NOSAVE >/dev/null 2>&1 || true
+    rm -rf "$datadir"
+}
+
+###############################################################################
 # Summary
 ###############################################################################
 print_summary() {
@@ -1392,6 +1448,7 @@ main() {
     test_logrotate
     test_sbom
     test_json_module
+    test_bloom_module
 
     # Stop any lingering services before removal
     if has_systemd; then
