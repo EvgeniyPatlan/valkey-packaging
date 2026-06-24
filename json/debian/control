@@ -1,0 +1,27 @@
+Source: percona-valkey-json
+Section: database
+Priority: optional
+Maintainer: Evgeniy Patlan <evgeniy.patlan@percona.com>
+Build-Depends:
+ debhelper (>= 13),
+ cmake (>= 3.17),
+ g++,
+ make,
+ percona-valkey-dev,
+Standards-Version: 4.7.2
+Homepage: https://github.com/valkey-io/valkey-json
+Rules-Requires-Root: no
+
+Package: percona-valkey-json
+Architecture: amd64 arm64
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ percona-valkey-server (>= 9.0.0),
+Description: Native JSON data type module for Percona Valkey
+ valkey-json provides native JSON support for Percona Valkey via the
+ libjson.so loadable module, implementing the JSON.* command family with
+ JSONPath queries (wildcards, filters, slices, unions, recursive descent).
+ .
+ The module is installed into /usr/lib/valkey/modules. It is not loaded
+ automatically; enable it with 'loadmodule' in valkey.conf or 'MODULE LOAD'.

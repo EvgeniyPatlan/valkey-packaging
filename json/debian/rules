@@ -1,0 +1,36 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Drop the "format" hardening feature (-Wformat -Werror=format-security):
+# upstream valkey-json compiles with -Wno-format (CMakeLists.txt), which
+# cancels -Wformat and leaves -Werror=format-security failing as
+# "'-Wformat-security' ignored without '-Wformat'". All other hardening stays on.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all,-format
+
+# Path to valkeymodule.h. Defaults to the location shipped by
+# percona-valkey-dev; overridable so a bundled header can be used for a
+# fully self-contained / offline build.
+VALKEY_MODULE_H ?= /usr/include/valkeymodule.h
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	cmake -S . -B obj-build \
+	    -DCMAKE_BUILD_TYPE=Release \
+	    -DBUILD_RELEASE=ON \
+	    -DENABLE_UNIT_TESTS=OFF \
+	    -DENABLE_INTEGRATION_TESTS=OFF \
+	    -DVALKEY_MODULE_H_PATH=$(VALKEY_MODULE_H) \
+	    -DFETCHCONTENT_SOURCE_DIR_RAPIDJSON=$(CURDIR)/deps/rapidjson
+
+override_dh_auto_build:
+	cmake --build obj-build -j$$(nproc)
+
+override_dh_auto_install:
+	install -d debian/percona-valkey-json/usr/lib/valkey/modules
+	install -m 0755 obj-build/src/libjson.so \
+	    debian/percona-valkey-json/usr/lib/valkey/modules/libjson.so
+
+# The module build runs no tests during packaging.
+override_dh_auto_test:
