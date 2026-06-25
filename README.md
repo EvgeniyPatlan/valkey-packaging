@@ -96,6 +96,38 @@ scripts/valkey_builder.sh \
   --use_local_packaging_script
 ```
 
+### percona-valkey-json (JSON module)
+
+The [valkey-json](https://github.com/valkey-io/valkey-json) module (`libjson.so`)
+is packaged separately from the server, with its own upstream version. It is
+built through the same driver using the `*_json_*` flags:
+
+```bash
+# RPM (on an RPM-based host)
+scripts/valkey_builder.sh \
+  --builddir=/tmp/BUILD \
+  --get_json_sources \
+  --build_json_src_rpm --build_json_rpm \
+  --json_version=1.0.2
+
+# DEB (on a Debian/Ubuntu host)
+scripts/valkey_builder.sh \
+  --builddir=/tmp/BUILD \
+  --get_json_sources \
+  --build_json_src_deb --build_json_deb \
+  --json_version=1.0.2
+```
+
+`--get_json_sources` clones valkey-json at the requested tag, vendors RapidJSON,
+and produces a self-contained tarball. The module is compiled **offline** against
+the system `valkeymodule.h` shipped by `percona-valkey-dev` / `percona-valkey-devel`
+(a packaging patch replaces valkey-json's build-time clone of `valkey-io/valkey`),
+so that package must be installed before the build. Output packages land in
+`/tmp/BUILD/rpm/` or `/tmp/BUILD/deb/`. The resulting `percona-valkey-json` package
+installs `libjson.so` into the Valkey module directory and depends on
+`percona-valkey-server`; the module is **not** loaded automatically — enable it
+with `loadmodule` in `valkey.conf` or `MODULE LOAD` at runtime.
+
 ### Builder flags reference
 
 | Flag | Description |
@@ -112,6 +144,14 @@ scripts/valkey_builder.sh \
 | `--branch=BRANCH` | Git branch/tag to check out (default: `9.1`) |
 | `--repo=URL` | Source repository URL (default: `https://github.com/valkey-io/valkey.git`) |
 | `--use_local_packaging_script` | Use `debian/` and `rpm/` from this repo instead of cloning |
+| `--get_json_sources` | Clone valkey-json, vendor RapidJSON, build an offline source tarball |
+| `--build_json_src_rpm` | Build the percona-valkey-json source RPM |
+| `--build_json_rpm` | Build the percona-valkey-json binary RPM |
+| `--build_json_src_deb` | Build the percona-valkey-json source DEB |
+| `--build_json_deb` | Build the percona-valkey-json binary DEB |
+| `--json_version=VER` | valkey-json version (default: `1.0.2`) |
+| `--json_branch=REF` | valkey-json git ref (default: same as `--json_version`) |
+| `--json_repo=URL` | valkey-json source repo (default: `https://github.com/valkey-io/valkey-json.git`) |
 
 ## Testing packages
 
@@ -237,6 +277,14 @@ scripts/test_in_docker.sh --repo --no-docker
 | `percona-valkey-compat-redis` | Redis compatibility symlinks |
 | `percona-valkey-compat-redis-dev` | Redis compatibility dev headers |
 | `percona-valkey-doc` | Documentation |
+
+The JSON module is built and versioned independently (see
+[percona-valkey-json](#percona-valkey-json-json-module) above) and produced for
+both DEB and RPM:
+
+| Package | Description |
+|---------|-------------|
+| `percona-valkey-json` | JSON data type module (`libjson.so`), loaded manually |
 
 ## License
 

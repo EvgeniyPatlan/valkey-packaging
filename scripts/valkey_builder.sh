@@ -16,6 +16,15 @@ readonly DEFAULT_RELEASE="1"
 readonly DEFAULT_BRANCH="9.1"
 readonly DEFAULT_REPO="https://github.com/valkey-io/valkey.git"
 
+# valkey-json module packaging (separate upstream source + version)
+readonly JSON_PACKAGE_NAME="percona-valkey-json"
+readonly DEFAULT_JSON_REPO="https://github.com/valkey-io/valkey-json.git"
+readonly DEFAULT_JSON_VERSION="1.0.2"
+# RapidJSON is vendored into the source tarball so the module builds offline
+# (upstream CMake otherwise FetchContent-clones it from GitHub at build time).
+readonly RAPIDJSON_REPO="https://github.com/Tencent/rapidjson.git"
+readonly RAPIDJSON_COMMIT="ebd87cb468fb4cb060b37e579718c4a4125416c1"
+
 # Absolute path to the directory containing this script
 BUILDER_SCRIPT_DIR="$(dirname "$(readlink -e "${0}")")"
 readonly BUILDER_SCRIPT_DIR
@@ -58,8 +67,18 @@ Usage: $0 [OPTIONS]
         --version=VER                   Version string (default: ${DEFAULT_VERSION})
         --release=REL                   Release number (default: ${DEFAULT_RELEASE})
         --use_local_packaging_script    Use local packaging scripts (located in ${BUILDER_SCRIPT_DIR}/../{debian,rpm})
+        --json_deps                     Install valkey-json build deps (Percona repo, percona-valkey-dev(el), cmake, g++)
+        --get_json_sources              Fetch valkey-json + vendor RapidJSON into an offline tarball
+        --build_json_src_rpm            Build the percona-valkey-json source RPM
+        --build_json_rpm                Build the percona-valkey-json binary RPM
+        --build_json_src_deb            Build the percona-valkey-json source DEB
+        --build_json_deb                Build the percona-valkey-json binary DEB
+        --json_version=VER              valkey-json version (default: ${DEFAULT_JSON_VERSION})
+        --json_branch=REF               valkey-json git ref (default: same as --json_version)
+        --json_repo=URL                 valkey-json source repo (default: ${DEFAULT_JSON_REPO})
         --help                          Print usage
 Example: $0 --builddir=/tmp/BUILD --get_sources --build_src_rpm --build_rpm
+         $0 --builddir=/tmp/BUILD --get_json_sources --build_json_src_deb --build_json_deb
 EOF
     exit 0
 }
@@ -82,6 +101,15 @@ parse_arguments() {
             --release=*)                 RELEASE="${arg#*=}" ;;
             --install_deps=*|--install_deps) INSTALL=1 ;;
             --use_local_packaging_script=*|--use_local_packaging_script) LOCAL_BUILD=1 ;;
+            --json_deps=*|--json_deps)   JSON_DEPS=1 ;;
+            --get_json_sources=*|--get_json_sources) JSON_SOURCE=1 ;;
+            --build_json_src_rpm=*|--build_json_src_rpm) JSON_SRPM=1 ;;
+            --build_json_rpm=*|--build_json_rpm)     JSON_RPM=1 ;;
+            --build_json_src_deb=*|--build_json_src_deb) JSON_SDEB=1 ;;
+            --build_json_deb=*|--build_json_deb)     JSON_DEB=1 ;;
+            --json_version=*)            JSON_VERSION="${arg#*=}" ;;
+            --json_branch=*)             JSON_BRANCH="${arg#*=}" ;;
+            --json_repo=*)               JSON_REPO="${arg#*=}" ;;
             --help)                      usage ;;
             *)                           die "Unknown option: $arg" ;;
         esac
@@ -302,6 +330,69 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# get_json_sources — fetch valkey-json, vendor RapidJSON, emit offline tarball
+# ---------------------------------------------------------------------------
+get_json_sources() {
+    if [[ "$JSON_SOURCE" -eq 0 ]]; then
+        log_info "valkey-json sources will not be downloaded"
+        return 0
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${JSON_PACKAGE_NAME}-${JSON_VERSION}"
+    local srcdir="${WORKDIR}/${name}"
+
+    log_info "Cloning valkey-json ${JSON_BRANCH} from ${JSON_REPO} ..."
+    rm -rf "${srcdir}"
+    if ! git clone --depth 1 --branch "${JSON_BRANCH}" "${JSON_REPO}" "${name}"; then
+        die "Failed to clone valkey-json from ${JSON_REPO} (ref ${JSON_BRANCH})"
+    fi
+
+    local revision
+    revision="$(cd "${srcdir}" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+    log_info "Vendoring RapidJSON ${RAPIDJSON_COMMIT} ..."
+    git clone "${RAPIDJSON_REPO}" "${srcdir}/deps/rapidjson" \
+        || die "Failed to clone RapidJSON"
+    ( cd "${srcdir}/deps/rapidjson" && git checkout -q "${RAPIDJSON_COMMIT}" ) \
+        || die "Failed to check out RapidJSON ${RAPIDJSON_COMMIT}"
+
+    log_info "Adding in-package README ..."
+    cp "${BUILDER_SCRIPT_DIR}/../json/README.packaging.md" "${srcdir}/README.packaging.md" \
+        || die "json/README.packaging.md is missing"
+
+    log_info "Stripping VCS metadata ..."
+    find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
+    # SBOM of the module source tree (best-effort; written to the sbom/ output
+    # dir, not into the tarball). Consistent with the server packages.
+    generate_sbom_files "${srcdir}" "${WORKDIR}/json.spdx.json" "${WORKDIR}/json.cdx.json"
+    copy_artifacts "sbom" "${WORKDIR}/json.spdx.json" "${WORKDIR}/json.cdx.json"
+    rm -f "${WORKDIR}/json.spdx.json" "${WORKDIR}/json.cdx.json"
+
+    log_info "Creating ${name}.tar.gz ..."
+    tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
+        || die "Failed to create valkey-json source tarball"
+
+    # Properties file consumed by the Jenkins pipeline to derive the upload path
+    # (mirrors the server's valkey.properties).
+    cat > "${WORKDIR}/valkey-json.properties" <<EOF
+PRODUCT=${JSON_PACKAGE_NAME}
+PRODUCT_FULL=${name}
+VERSION=${JSON_VERSION}
+BUILD_NUMBER=${BUILD_NUMBER:-}
+BUILD_ID=${BUILD_ID:-}
+REVISION=${revision}
+UPLOAD=UPLOAD/experimental/BUILDS/valkey-json/${name}/${JSON_BRANCH}/${revision}/${BUILD_ID:-}
+EOF
+
+    copy_artifacts "source_tarball" "${name}.tar.gz"
+
+    cd "$CURDIR" || die "Cannot cd to $CURDIR"
+}
+
+# ---------------------------------------------------------------------------
 # get_system — detect OS family (rpm vs deb) and platform details
 # ---------------------------------------------------------------------------
 get_system() {
@@ -472,6 +563,47 @@ install_deps_deb() {
 }
 
 # ---------------------------------------------------------------------------
+# install_deps_json — build deps for the valkey-json module.
+#   The module compiles against the system valkeymodule.h shipped by
+#   percona-valkey-dev(el), so this sets up the Percona repo (channel from
+#   VALKEY_REPO_CHANNEL, default "testing") and installs that package plus the
+#   C++ toolchain. Triggered by --json_deps.
+# ---------------------------------------------------------------------------
+install_deps_json() {
+    if [[ "$JSON_DEPS" -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        die "Cannot install dependencies — please run as root"
+    fi
+
+    local channel="${VALKEY_REPO_CHANNEL:-testing}"
+
+    if [[ "$OS" == "rpm" ]]; then
+        local pkg_mgr="yum"
+        command -v dnf &>/dev/null && pkg_mgr="dnf"
+        $pkg_mgr -y install https://repo.percona.com/yum/percona-release-latest.noarch.rpm
+        percona-release enable-only valkey "${channel}" || percona-release enable valkey "${channel}"
+        $pkg_mgr -y install \
+            gcc-c++ cmake make git tar gzip rpm-build rpmdevtools \
+            percona-valkey-devel
+    else
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get -y install wget ca-certificates gnupg lsb-release
+        wget -qO /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb
+        dpkg -i /tmp/percona-release.deb || apt-get install -f -y
+        percona-release enable-only valkey "${channel}" || percona-release enable valkey "${channel}"
+        apt-get update
+        apt-get -y install \
+            debhelper devscripts dh-exec dpkg-dev fakeroot \
+            cmake g++ make git \
+            percona-valkey-dev
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # build_srpm
 # ---------------------------------------------------------------------------
 build_srpm() {
@@ -543,6 +675,73 @@ build_rpm() {
         --define "version ${VERSION}" --rebuild "rb/SRPMS/${src_rpm}"
 
     copy_artifacts "rpm" rb/RPMS/*/*.rpm
+}
+
+# ---------------------------------------------------------------------------
+# build_json_srpm — source RPM for percona-valkey-json
+# ---------------------------------------------------------------------------
+build_json_srpm() {
+    if [[ "$JSON_SRPM" -eq 0 ]]; then
+        log_info "valkey-json SRC RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build src rpm on a Debian-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    find_and_copy_artifact "source_tarball" "${JSON_PACKAGE_NAME}*.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    rm -fr json_rpmbuild
+    mkdir -vp json_rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
+
+    cp -av "${BUILDER_SCRIPT_DIR}/../json/rpm/${JSON_PACKAGE_NAME}.spec" json_rpmbuild/SPECS/
+    # Spec patches are kept in json/debian/patches (single source of truth, shared
+    # with the DEB quilt series); copy them next to the tarball for rpmbuild.
+    cp -av "${BUILDER_SCRIPT_DIR}/../json/debian/patches/"*.patch json_rpmbuild/SOURCES/
+    mv -fv "$tarfile" json_rpmbuild/SOURCES/
+
+    # Allow --json_version to flow through to the package version.
+    sed -i "s/^Version:.*$/Version:        ${JSON_VERSION}/" \
+        "json_rpmbuild/SPECS/${JSON_PACKAGE_NAME}.spec"
+
+    rpmbuild -bs --define "_topdir ${WORKDIR}/json_rpmbuild" --define "dist .generic" \
+        "json_rpmbuild/SPECS/${JSON_PACKAGE_NAME}.spec"
+
+    # Keep json SRPMs in a dedicated dir so the server build_rpm glob
+    # (percona-valkey*.src.rpm) never picks them up by mistake.
+    copy_artifacts "json_srpm" json_rpmbuild/SRPMS/*.src.rpm
+}
+
+# ---------------------------------------------------------------------------
+# build_json_rpm — binary RPM for percona-valkey-json
+# ---------------------------------------------------------------------------
+build_json_rpm() {
+    if [[ "$JSON_RPM" -eq 0 ]]; then
+        log_info "valkey-json RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build rpm on a Debian-based system"
+    fi
+
+    find_and_copy_artifact "json_srpm" "${JSON_PACKAGE_NAME}*.src.rpm"
+    local src_rpm="$FOUND_FILE"
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    rm -fr json_rb
+    mkdir -vp json_rb/{SOURCES,SPECS,BUILD,SRPMS,RPMS,BUILDROOT}
+    cp "$src_rpm" json_rb/SRPMS/
+
+    rpmbuild --define "_topdir ${WORKDIR}/json_rb" --define "dist .${OS_NAME}" \
+        --rebuild "json_rb/SRPMS/${src_rpm}"
+
+    copy_artifacts "rpm" json_rb/RPMS/*/*.rpm
 }
 
 # ---------------------------------------------------------------------------
@@ -658,6 +857,80 @@ build_deb() {
     copy_artifacts "deb" "$WORKDIR"/*.*deb
 }
 
+# ---------------------------------------------------------------------------
+# build_json_source_deb — source DEB for percona-valkey-json
+# ---------------------------------------------------------------------------
+build_json_source_deb() {
+    if [[ "$JSON_SDEB" -eq 0 ]]; then
+        log_info "valkey-json source deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build source deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${JSON_PACKAGE_NAME}"
+    local ver="${JSON_VERSION}"
+
+    rm -rf "${name}-${ver}" "${name}_${ver}".orig.tar.gz "${name}_${ver}-"*
+
+    find_and_copy_artifact "source_tarball" "${name}*.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    # dpkg-source expects the orig tarball name to match the source package.
+    cp "$tarfile" "${name}_${ver}.orig.tar.gz"
+    tar xf "$tarfile"
+
+    # debian/ (including patches/) comes from this repo's json/ tree.
+    cp -r "${BUILDER_SCRIPT_DIR}/../json/debian" "${name}-${ver}/debian"
+    chmod +x "${name}-${ver}/debian/rules"
+
+    ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
+        || die "json source deb build failed"
+
+    copy_artifacts "json_source_deb" "${name}_${ver}-"*.dsc
+    copy_artifacts "json_source_deb" "${name}_${ver}.orig.tar.gz"
+    copy_artifacts "json_source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# build_json_deb — binary DEB for percona-valkey-json
+# ---------------------------------------------------------------------------
+build_json_deb() {
+    if [[ "$JSON_DEB" -eq 0 ]]; then
+        log_info "valkey-json deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${JSON_PACKAGE_NAME}"
+    local ver="${JSON_VERSION}"
+
+    for ext in 'dsc' 'orig.tar.gz'; do
+        find_and_copy_artifact "json_source_deb" "${name}_${ver}*.${ext}"
+    done
+    find_and_copy_artifact "json_source_deb" "${name}_${ver}*.debian.tar.*" || true
+
+    rm -rf "${name}-${ver}"
+    local dsc
+    dsc="$(basename "$(find . -maxdepth 1 -name "${name}_${ver}*.dsc" | sort | tail -n1)")"
+    [ -n "$dsc" ] || die "json dsc not found — run --build_json_src_deb first"
+    dpkg-source -x "$dsc" "${name}-${ver}"
+
+    ( cd "${name}-${ver}" && dpkg-buildpackage -b -us -uc ) \
+        || die "json binary deb build failed"
+
+    copy_artifacts "deb" "${name}_${ver}-"*_*.deb
+}
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -679,8 +952,20 @@ REPO="$DEFAULT_REPO"
 VERSION="$DEFAULT_VERSION"
 RELEASE="$DEFAULT_RELEASE"
 LOCAL_BUILD=0
+JSON_DEPS=0
+JSON_SOURCE=0
+JSON_SRPM=0
+JSON_RPM=0
+JSON_SDEB=0
+JSON_DEB=0
+JSON_REPO="$DEFAULT_JSON_REPO"
+JSON_VERSION="$DEFAULT_JSON_VERSION"
+JSON_BRANCH=""
 
 parse_arguments "$@"
+
+# Default the json git ref to the json version (a tag) unless overridden.
+JSON_BRANCH="${JSON_BRANCH:-$JSON_VERSION}"
 
 # PRODUCT_FULL is set after parsing so --version can override; exported for child processes
 export PRODUCT_FULL="${PRODUCT}-${VERSION}-${RELEASE}"
@@ -692,8 +977,14 @@ fi
 check_workdir
 get_system
 install_deps
+install_deps_json
 get_sources
+get_json_sources
 build_srpm
 build_source_deb
 build_rpm
 build_deb
+build_json_srpm
+build_json_rpm
+build_json_source_deb
+build_json_deb
