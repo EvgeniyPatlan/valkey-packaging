@@ -30,6 +30,12 @@ readonly BLOOM_PACKAGE_NAME="percona-valkey-bloom"
 readonly DEFAULT_BLOOM_REPO="https://github.com/valkey-io/valkey-bloom.git"
 readonly DEFAULT_BLOOM_VERSION="1.0.1"
 
+# valkey-search module packaging (C++20; deps gRPC/Protobuf/Abseil/ICU built
+# from source at package-build time; separate upstream source + version)
+readonly SEARCH_PACKAGE_NAME="percona-valkey-search"
+readonly DEFAULT_SEARCH_REPO="https://github.com/valkey-io/valkey-search.git"
+readonly DEFAULT_SEARCH_VERSION="1.2.0"
+
 # Absolute path to the directory containing this script
 BUILDER_SCRIPT_DIR="$(dirname "$(readlink -e "${0}")")"
 readonly BUILDER_SCRIPT_DIR
@@ -90,6 +96,15 @@ Usage: $0 [OPTIONS]
         --bloom_version=VER             valkey-bloom version (default: ${DEFAULT_BLOOM_VERSION})
         --bloom_branch=REF              valkey-bloom git ref (default: same as --bloom_version)
         --bloom_repo=URL                valkey-bloom source repo (default: ${DEFAULT_BLOOM_REPO})
+        --search_deps                   Install valkey-search build deps (g++>=12 toolchain, cmake, ninja, ...)
+        --get_search_sources            Fetch valkey-search into a source tarball
+        --build_search_src_rpm          Build the percona-valkey-search source RPM
+        --build_search_rpm              Build the percona-valkey-search binary RPM
+        --build_search_src_deb          Build the percona-valkey-search source DEB
+        --build_search_deb              Build the percona-valkey-search binary DEB
+        --search_version=VER            valkey-search version (default: ${DEFAULT_SEARCH_VERSION})
+        --search_branch=REF             valkey-search git ref (default: same as --search_version)
+        --search_repo=URL               valkey-search source repo (default: ${DEFAULT_SEARCH_REPO})
         --help                          Print usage
 Example: $0 --builddir=/tmp/BUILD --get_sources --build_src_rpm --build_rpm
          $0 --builddir=/tmp/BUILD --get_json_sources --build_json_src_deb --build_json_deb
@@ -133,6 +148,15 @@ parse_arguments() {
             --bloom_version=*)           BLOOM_VERSION="${arg#*=}" ;;
             --bloom_branch=*)            BLOOM_BRANCH="${arg#*=}" ;;
             --bloom_repo=*)              BLOOM_REPO="${arg#*=}" ;;
+            --search_deps=*|--search_deps) SEARCH_DEPS=1 ;;
+            --get_search_sources=*|--get_search_sources) SEARCH_SOURCE=1 ;;
+            --build_search_src_rpm=*|--build_search_src_rpm) SEARCH_SRPM=1 ;;
+            --build_search_rpm=*|--build_search_rpm) SEARCH_RPM=1 ;;
+            --build_search_src_deb=*|--build_search_src_deb) SEARCH_SDEB=1 ;;
+            --build_search_deb=*|--build_search_deb) SEARCH_DEB=1 ;;
+            --search_version=*)          SEARCH_VERSION="${arg#*=}" ;;
+            --search_branch=*)           SEARCH_BRANCH="${arg#*=}" ;;
+            --search_repo=*)             SEARCH_REPO="${arg#*=}" ;;
             --help)                      usage ;;
             *)                           die "Unknown option: $arg" ;;
         esac
@@ -502,6 +526,62 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# get_search_sources — fetch valkey-search into a source tarball
+#   No dependency vendoring: gRPC/Protobuf/Abseil/highwayhash are FetchContent-
+#   built at package-build time, and ICU source is already in the repo tree.
+# ---------------------------------------------------------------------------
+get_search_sources() {
+    if [[ "$SEARCH_SOURCE" -eq 0 ]]; then
+        log_info "valkey-search sources will not be downloaded"
+        return 0
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${SEARCH_PACKAGE_NAME}-${SEARCH_VERSION}"
+    local srcdir="${WORKDIR}/${name}"
+
+    log_info "Cloning valkey-search ${SEARCH_BRANCH} from ${SEARCH_REPO} ..."
+    rm -rf "${srcdir}"
+    if ! git clone --depth 1 --branch "${SEARCH_BRANCH}" "${SEARCH_REPO}" "${name}"; then
+        die "Failed to clone valkey-search from ${SEARCH_REPO} (ref ${SEARCH_BRANCH})"
+    fi
+
+    local revision
+    revision="$(cd "${srcdir}" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+    log_info "Adding in-package README ..."
+    cp "${BUILDER_SCRIPT_DIR}/../search/README.packaging.md" "${srcdir}/README.packaging.md" \
+        || die "search/README.packaging.md is missing"
+
+    log_info "Stripping VCS metadata ..."
+    find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
+    # SBOM of the module source tree (best-effort; written to the sbom/ output dir).
+    generate_sbom_files "${srcdir}" "${WORKDIR}/search.spdx.json" "${WORKDIR}/search.cdx.json"
+    copy_artifacts "sbom" "${WORKDIR}/search.spdx.json" "${WORKDIR}/search.cdx.json"
+    rm -f "${WORKDIR}/search.spdx.json" "${WORKDIR}/search.cdx.json"
+
+    log_info "Creating ${name}.tar.gz ..."
+    tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
+        || die "Failed to create valkey-search source tarball"
+
+    cat > "${WORKDIR}/valkey-search.properties" <<EOF
+PRODUCT=${SEARCH_PACKAGE_NAME}
+PRODUCT_FULL=${name}
+VERSION=${SEARCH_VERSION}
+BUILD_NUMBER=${BUILD_NUMBER:-}
+BUILD_ID=${BUILD_ID:-}
+REVISION=${revision}
+UPLOAD=UPLOAD/experimental/BUILDS/valkey-search/${name}/${SEARCH_BRANCH}/${revision}/${BUILD_ID:-}
+EOF
+
+    copy_artifacts "source_tarball" "${name}.tar.gz"
+
+    cd "$CURDIR" || die "Cannot cd to $CURDIR"
+}
+
+# ---------------------------------------------------------------------------
 # get_system — detect OS family (rpm vs deb) and platform details
 # ---------------------------------------------------------------------------
 get_system() {
@@ -757,6 +837,50 @@ install_deps_bloom() {
     ln -sf /usr/local/cargo/bin/rustup /usr/local/bin/rustup
     RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo cargo --version \
         || die "cargo not available after rustup install"
+}
+
+# ---------------------------------------------------------------------------
+# install_deps_search — build deps for the valkey-search (C++20) module.
+#   Needs cmake/ninja, autotools (ICU), openssl/systemd headers, git (the build
+#   FetchContent-clones gRPC/Protobuf/Abseil), and a C++20 compiler (g++ >= 12):
+#   gcc-toolset on RHEL, g++-12 on Debian/Ubuntu. Triggered by --search_deps.
+# ---------------------------------------------------------------------------
+install_deps_search() {
+    if [[ "$SEARCH_DEPS" -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        die "Cannot install dependencies — please run as root"
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        local pkg_mgr="yum"
+        command -v dnf &>/dev/null && pkg_mgr="dnf"
+        # EPEL provides ninja-build on RHEL-family.
+        case "$PLATFORM_FAMILY" in
+            oracle) $pkg_mgr -y install "oracle-epel-release-el${RHEL}" || true ;;
+            rhel)   $pkg_mgr -y install epel-release || true ;;
+        esac
+        $pkg_mgr -y install \
+            gcc gcc-c++ cmake ninja-build make git autoconf automake libtool \
+            openssl-devel systemd-devel pkgconfig rpm-build rpmdevtools tar gzip \
+            || true
+        # C++20 toolchain (RHEL 8/9 default gcc < 12); best-effort, %build sources it.
+        $pkg_mgr -y install gcc-toolset-13 \
+            || $pkg_mgr -y install gcc-toolset-14 \
+            || $pkg_mgr -y install gcc-toolset-12 \
+            || true
+    else
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get -y install \
+            build-essential debhelper devscripts dh-exec dpkg-dev fakeroot \
+            cmake ninja-build make git autoconf automake libtool pkg-config \
+            libssl-dev libsystemd-dev ca-certificates
+        # Prefer g++-12 where the default is older (e.g. Ubuntu jammy); best-effort.
+        apt-get -y install g++-12 gcc-12 || true
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -1220,6 +1344,139 @@ build_bloom_deb() {
     copy_artifacts "deb" "${name}_${ver}-"*_*.deb
 }
 
+# ---------------------------------------------------------------------------
+# build_search_srpm — source RPM for percona-valkey-search
+# ---------------------------------------------------------------------------
+build_search_srpm() {
+    if [[ "$SEARCH_SRPM" -eq 0 ]]; then
+        log_info "valkey-search SRC RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build src rpm on a Debian-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    find_and_copy_artifact "source_tarball" "${SEARCH_PACKAGE_NAME}*.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    rm -fr search_rpmbuild
+    mkdir -vp search_rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
+
+    cp -av "${BUILDER_SCRIPT_DIR}/../search/rpm/${SEARCH_PACKAGE_NAME}.spec" search_rpmbuild/SPECS/
+    mv -fv "$tarfile" search_rpmbuild/SOURCES/
+
+    sed -i "s/^Version:.*$/Version:        ${SEARCH_VERSION}/" \
+        "search_rpmbuild/SPECS/${SEARCH_PACKAGE_NAME}.spec"
+
+    rpmbuild -bs --define "_topdir ${WORKDIR}/search_rpmbuild" --define "dist .generic" \
+        "search_rpmbuild/SPECS/${SEARCH_PACKAGE_NAME}.spec"
+
+    copy_artifacts "search_srpm" search_rpmbuild/SRPMS/*.src.rpm
+}
+
+# ---------------------------------------------------------------------------
+# build_search_rpm — binary RPM for percona-valkey-search
+# ---------------------------------------------------------------------------
+build_search_rpm() {
+    if [[ "$SEARCH_RPM" -eq 0 ]]; then
+        log_info "valkey-search RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build rpm on a Debian-based system"
+    fi
+
+    find_and_copy_artifact "search_srpm" "${SEARCH_PACKAGE_NAME}*.src.rpm"
+    local src_rpm="$FOUND_FILE"
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    rm -fr search_rb
+    mkdir -vp search_rb/{SOURCES,SPECS,BUILD,SRPMS,RPMS,BUILDROOT}
+    cp "$src_rpm" search_rb/SRPMS/
+
+    rpmbuild --define "_topdir ${WORKDIR}/search_rb" --define "dist .${OS_NAME}" \
+        --rebuild "search_rb/SRPMS/${src_rpm}"
+
+    copy_artifacts "rpm" search_rb/RPMS/*/*.rpm
+}
+
+# ---------------------------------------------------------------------------
+# build_search_source_deb — source DEB for percona-valkey-search
+# ---------------------------------------------------------------------------
+build_search_source_deb() {
+    if [[ "$SEARCH_SDEB" -eq 0 ]]; then
+        log_info "valkey-search source deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build source deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${SEARCH_PACKAGE_NAME}"
+    local ver="${SEARCH_VERSION}"
+
+    rm -rf "${name}-${ver}" "${name}_${ver}".orig.tar.gz "${name}_${ver}-"*
+
+    find_and_copy_artifact "source_tarball" "${name}*.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    cp "$tarfile" "${name}_${ver}.orig.tar.gz"
+    tar xf "$tarfile"
+
+    cp -r "${BUILDER_SCRIPT_DIR}/../search/debian" "${name}-${ver}/debian"
+    chmod +x "${name}-${ver}/debian/rules"
+
+    ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
+        || die "search source deb build failed"
+
+    copy_artifacts "search_source_deb" "${name}_${ver}-"*.dsc
+    copy_artifacts "search_source_deb" "${name}_${ver}.orig.tar.gz"
+    copy_artifacts "search_source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# build_search_deb — binary DEB for percona-valkey-search
+# ---------------------------------------------------------------------------
+build_search_deb() {
+    if [[ "$SEARCH_DEB" -eq 0 ]]; then
+        log_info "valkey-search deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${SEARCH_PACKAGE_NAME}"
+    local ver="${SEARCH_VERSION}"
+
+    for ext in 'dsc' 'orig.tar.gz'; do
+        find_and_copy_artifact "search_source_deb" "${name}_${ver}*.${ext}"
+    done
+    find_and_copy_artifact "search_source_deb" "${name}_${ver}*.debian.tar.*" || true
+
+    rm -rf "${name}-${ver}"
+    local dsc
+    dsc="$(basename "$(find . -maxdepth 1 -name "${name}_${ver}*.dsc" | sort | tail -n1)")"
+    [ -n "$dsc" ] || die "search dsc not found — run --build_search_src_deb first"
+    dpkg-source -x "$dsc" "${name}-${ver}"
+
+    ( cd "${name}-${ver}" && dpkg-buildpackage -b -us -uc ) \
+        || die "search binary deb build failed"
+
+    copy_artifacts "deb" "${name}_${ver}-"*_*.deb
+}
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -1259,12 +1516,22 @@ BLOOM_DEB=0
 BLOOM_REPO="$DEFAULT_BLOOM_REPO"
 BLOOM_VERSION="$DEFAULT_BLOOM_VERSION"
 BLOOM_BRANCH=""
+SEARCH_DEPS=0
+SEARCH_SOURCE=0
+SEARCH_SRPM=0
+SEARCH_RPM=0
+SEARCH_SDEB=0
+SEARCH_DEB=0
+SEARCH_REPO="$DEFAULT_SEARCH_REPO"
+SEARCH_VERSION="$DEFAULT_SEARCH_VERSION"
+SEARCH_BRANCH=""
 
 parse_arguments "$@"
 
-# Default the json/bloom git ref to the module version (a tag) unless overridden.
+# Default each module's git ref to its version (a tag) unless overridden.
 JSON_BRANCH="${JSON_BRANCH:-$JSON_VERSION}"
 BLOOM_BRANCH="${BLOOM_BRANCH:-$BLOOM_VERSION}"
+SEARCH_BRANCH="${SEARCH_BRANCH:-$SEARCH_VERSION}"
 
 # PRODUCT_FULL is set after parsing so --version can override; exported for child processes
 export PRODUCT_FULL="${PRODUCT}-${VERSION}-${RELEASE}"
@@ -1278,9 +1545,11 @@ get_system
 install_deps
 install_deps_json
 install_deps_bloom
+install_deps_search
 get_sources
 get_json_sources
 get_bloom_sources
+get_search_sources
 build_srpm
 build_source_deb
 build_rpm
@@ -1293,3 +1562,7 @@ build_bloom_srpm
 build_bloom_rpm
 build_bloom_source_deb
 build_bloom_deb
+build_search_srpm
+build_search_rpm
+build_search_source_deb
+build_search_deb

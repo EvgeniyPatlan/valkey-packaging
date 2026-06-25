@@ -1256,6 +1256,62 @@ test_bloom_module() {
 }
 
 ###############################################################################
+# Search module (percona-valkey-search)
+###############################################################################
+test_search_module() {
+    section_header "Test: Search module (percona-valkey-search)"
+
+    local module_dir module_path
+    if [[ "$OS_FAMILY" == "rpm" ]]; then
+        module_dir="$(rpm --eval %{_libdir})/valkey/modules"
+    else
+        module_dir="/usr/lib/valkey/modules"
+    fi
+    module_path="${module_dir}/libsearch.so"
+
+    # Auto-skip when the Search package is not part of this test run.
+    if [[ ! -f "$module_path" ]]; then
+        skip "percona-valkey-search not installed — skipping Search module tests"
+        return
+    fi
+
+    assert_file_exists "$module_path" "libsearch.so installed in module dir"
+
+    local port=16397
+    local datadir
+    datadir="$(mktemp -d)"
+    valkey-server --port "$port" --daemonize yes --loadmodule "$module_path" \
+        --dir "$datadir" --logfile "$datadir/server.log" --save '' --appendonly no \
+        >/dev/null 2>&1 || true
+
+    local up=0 i
+    for i in $(seq 1 15); do
+        if [[ "$(valkey-cli -p "$port" PING 2>/dev/null)" == "PONG" ]]; then up=1; break; fi
+        sleep 1
+    done
+
+    if [[ "$up" -ne 1 ]]; then
+        fail "throwaway valkey-server with libsearch.so started"
+        tail -5 "$datadir/server.log" 2>/dev/null || true
+        rm -rf "$datadir"
+        return
+    fi
+    pass "valkey-server loaded libsearch.so"
+
+    assert_command_output_contains "MODULE LIST shows search" "search" \
+        valkey-cli -p "$port" MODULE LIST
+
+    # Functional FT.* round-trip: create a vector index and list it.
+    valkey-cli -p "$port" FT.CREATE smoketestidx ON HASH PREFIX 1 doc: \
+        SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 3 DISTANCE_METRIC L2 >/dev/null 2>&1 || true
+    assert_command_output_contains "FT._LIST shows the created index" "smoketestidx" \
+        valkey-cli -p "$port" FT._LIST
+
+    valkey-cli -p "$port" SHUTDOWN NOSAVE >/dev/null 2>&1 || true
+    rm -rf "$datadir"
+}
+
+###############################################################################
 # Summary
 ###############################################################################
 print_summary() {
@@ -1449,6 +1505,7 @@ main() {
     test_sbom
     test_json_module
     test_bloom_module
+    test_search_module
 
     # Stop any lingering services before removal
     if has_systemd; then
