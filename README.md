@@ -128,6 +128,35 @@ installs `libjson.so` into the Valkey module directory and depends on
 `percona-valkey-server`; the module is **not** loaded automatically — enable it
 with `loadmodule` in `valkey.conf` or `MODULE LOAD` at runtime.
 
+### percona-valkey-bloom (Bloom filter module)
+
+The [valkey-bloom](https://github.com/valkey-io/valkey-bloom) module
+(`libvalkey_bloom.so`, a Rust module) is packaged the same way, with its own
+upstream version:
+
+```bash
+# RPM (on an RPM-based host)
+scripts/valkey_builder.sh \
+  --builddir=/tmp/BUILD \
+  --bloom_deps \
+  --get_bloom_sources \
+  --build_bloom_src_rpm --build_bloom_rpm \
+  --bloom_version=1.0.1
+
+# DEB (on a Debian/Ubuntu host) — swap the build flags:
+#   --build_bloom_src_deb --build_bloom_deb
+```
+
+`--bloom_deps` installs the build toolchain (Rust via rustup, plus `clang` for
+the `valkey-module` crate's bindgen step). `--get_bloom_sources` clones
+valkey-bloom and **vendors all cargo dependencies** into the tarball, so the
+module compiles **offline** (`cargo build --release --offline`). No
+`valkeymodule.h`/`percona-valkey-dev` is needed — the module links nothing
+valkey-specific. The resulting `percona-valkey-bloom` package installs
+`libvalkey_bloom.so` into the Valkey module directory and depends on
+`percona-valkey-server`; it is **not** loaded automatically (`MODULE LIST`
+shows `name=bf`; try `BF.ADD k x` / `BF.EXISTS k x`).
+
 ### Builder flags reference
 
 | Flag | Description |
@@ -152,6 +181,15 @@ with `loadmodule` in `valkey.conf` or `MODULE LOAD` at runtime.
 | `--json_version=VER` | valkey-json version (default: `1.0.2`) |
 | `--json_branch=REF` | valkey-json git ref (default: same as `--json_version`) |
 | `--json_repo=URL` | valkey-json source repo (default: `https://github.com/valkey-io/valkey-json.git`) |
+| `--bloom_deps` | Install valkey-bloom build deps (Rust via rustup, clang) |
+| `--get_bloom_sources` | Clone valkey-bloom, vendor cargo deps, build an offline source tarball |
+| `--build_bloom_src_rpm` | Build the percona-valkey-bloom source RPM |
+| `--build_bloom_rpm` | Build the percona-valkey-bloom binary RPM |
+| `--build_bloom_src_deb` | Build the percona-valkey-bloom source DEB |
+| `--build_bloom_deb` | Build the percona-valkey-bloom binary DEB |
+| `--bloom_version=VER` | valkey-bloom version (default: `1.0.1`) |
+| `--bloom_branch=REF` | valkey-bloom git ref (default: same as `--bloom_version`) |
+| `--bloom_repo=URL` | valkey-bloom source repo (default: `https://github.com/valkey-io/valkey-bloom.git`) |
 
 ## Testing packages
 
@@ -285,6 +323,7 @@ both DEB and RPM:
 | Package | Description |
 |---------|-------------|
 | `percona-valkey-json` | JSON data type module (`libjson.so`), loaded manually |
+| `percona-valkey-bloom` | Bloom filter module (`libvalkey_bloom.so`), loaded manually |
 
 ## License
 

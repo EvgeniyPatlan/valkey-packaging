@@ -1,0 +1,5 @@
+percona-valkey-bloom (1.0.1-1) unstable; urgency=medium
+
+  * Initial percona-valkey-bloom package (upstream valkey-bloom 1.0.1).
+
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Tue, 24 Jun 2026 00:00:00 +0000

@@ -1,0 +1,18 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: valkey-bloom
+Source: https://github.com/valkey-io/valkey-bloom
+
+Files: *
+Copyright: 2024-2025 valkey-bloom contributors
+License: BSD-3-Clause
+
+Files: vendor/*
+Copyright: see each crate's own license metadata under vendor/<crate>/
+License: Apache-2.0 or MIT or BSD-3-Clause or BSD-2-Clause
+ The vendored Rust crates retain their individual upstream licenses; refer to
+ the LICENSE/COPYRIGHT files inside each vendor/<crate>/ directory.
+
+License: BSD-3-Clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the conditions of the BSD 3-Clause
+ License are met. See the upstream LICENSE file for the full text.
