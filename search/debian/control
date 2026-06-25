@@ -1,0 +1,39 @@
+Source: percona-valkey-search
+Section: database
+Priority: optional
+Maintainer: Evgeniy Patlan <evgeniy.patlan@percona.com>
+Build-Depends:
+ debhelper (>= 13),
+ cmake (>= 3.16),
+ ninja-build,
+ g++,
+ make,
+ git,
+ autoconf,
+ automake,
+ libtool,
+ pkg-config,
+ libssl-dev,
+ libsystemd-dev,
+ ca-certificates,
+Standards-Version: 4.7.2
+Homepage: https://github.com/valkey-io/valkey-search
+Rules-Requires-Root: no
+
+Package: percona-valkey-search
+Architecture: amd64 arm64
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ percona-valkey-server (>= 9.0.0),
+Description: Vector and full-text search module for Percona Valkey
+ valkey-search provides a search index data type for Percona Valkey via the
+ libsearch.so loadable module (FT.CREATE, FT.SEARCH, FT.INFO, FT.AGGREGATE,
+ FT.DROPINDEX, ...), supporting vector similarity and full-text queries.
+ .
+ The module is installed into /usr/lib/valkey/modules. It is not loaded
+ automatically; enable it with 'loadmodule' in valkey.conf or 'MODULE LOAD'.
+ .
+ Note: this package compiles its dependencies (gRPC, Protobuf, Abseil, ICU,
+ highwayhash) from source at build time, which requires network access and a
+ C++20 compiler (g++ >= 12).

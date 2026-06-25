@@ -1,0 +1,38 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+# Skip building the unit-test binaries (build.sh forwards CMAKE_EXTRA_ARGS to cmake).
+export CMAKE_EXTRA_ARGS = -DBUILD_UNIT_TESTS=OFF
+
+# valkey-search needs a C++20 compiler (g++ >= 12). Prefer g++-12 when present
+# (e.g. Ubuntu jammy ships g++ 11 by default); bookworm/noble default g++ is >= 12.
+GXX12 := $(shell command -v g++-12 2>/dev/null)
+ifneq ($(GXX12),)
+export CC = gcc-12
+export CXX = g++-12
+endif
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+
+override_dh_auto_build:
+	# build.sh builds ICU from source, FetchContent-builds gRPC/Protobuf/Abseil/
+	# highwayhash, then compiles the module -> .build-release/libsearch.so.
+	./build.sh --jobs=$$(nproc)
+
+override_dh_auto_install:
+	install -d debian/percona-valkey-search/usr/lib/valkey/modules
+	install -m 0755 .build-release/libsearch.so \
+	    debian/percona-valkey-search/usr/lib/valkey/modules/libsearch.so
+
+override_dh_fixperms:
+	dh_fixperms
+	# Valkey refuses to load a module without the execute bit; dh_fixperms
+	# normalises the .so back to 0644, so restore 0755.
+	chmod 0755 debian/percona-valkey-search/usr/lib/valkey/modules/libsearch.so
+
+# The module build runs no tests during packaging.
+override_dh_auto_test:
