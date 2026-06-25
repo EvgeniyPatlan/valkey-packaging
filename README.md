@@ -157,6 +157,40 @@ valkey-specific. The resulting `percona-valkey-bloom` package installs
 `percona-valkey-server`; it is **not** loaded automatically (`MODULE LIST`
 shows `name=bf`; try `BF.ADD k x` / `BF.EXISTS k x`).
 
+### percona-valkey-search (Search module)
+
+The [valkey-search](https://github.com/valkey-io/valkey-search) module
+(`libsearch.so`, vector / full-text search) is packaged the same way:
+
+```bash
+# RPM (on an RPM-based host)
+scripts/valkey_builder.sh \
+  --builddir=/tmp/BUILD \
+  --search_deps \
+  --get_search_sources \
+  --build_search_src_rpm --build_search_rpm \
+  --search_version=1.2.0
+
+# DEB (on a Debian/Ubuntu host) — swap the build flags:
+#   --build_search_src_deb --build_search_deb
+```
+
+`--search_deps` installs cmake, ninja, autotools (for ICU), the openssl/systemd
+headers, and a **C++20 toolchain (g++ ≥ 12)** — gcc-toolset on RHEL, `g++-12` on
+Debian/Ubuntu. The build then runs upstream `build.sh`, which **compiles
+gRPC, Protobuf, Abseil, highwayhash and ICU from source** and links the module
+→ `libsearch.so` (this needs **build-time network access** and is a heavy,
+long-running build). The resulting `percona-valkey-search` package installs
+`libsearch.so` into the Valkey module directory and depends on
+`percona-valkey-server`; it is **not** loaded automatically (`MODULE LIST`
+shows `name=search`; try `FT.CREATE` / `FT._LIST` / `FT.SEARCH`).
+
+> **Note:** valkey-search requires a C++20 compiler (g++ ≥ 12). On distros whose
+> default gcc is older (Oracle Linux 8, Amazon Linux 2023, Debian bullseye),
+> `--search_deps` installs a newer toolchain (gcc-toolset on RHEL/Amazon, `g++-12`
+> on Debian/Ubuntu) and the build uses it. So the full distro/arch matrix is
+> supported, same as the other modules.
+
 ### Builder flags reference
 
 | Flag | Description |
@@ -190,6 +224,15 @@ shows `name=bf`; try `BF.ADD k x` / `BF.EXISTS k x`).
 | `--bloom_version=VER` | valkey-bloom version (default: `1.0.1`) |
 | `--bloom_branch=REF` | valkey-bloom git ref (default: same as `--bloom_version`) |
 | `--bloom_repo=URL` | valkey-bloom source repo (default: `https://github.com/valkey-io/valkey-bloom.git`) |
+| `--search_deps` | Install valkey-search build deps (g++≥12 toolchain, cmake, ninja, autotools) |
+| `--get_search_sources` | Clone valkey-search into a source tarball |
+| `--build_search_src_rpm` | Build the percona-valkey-search source RPM |
+| `--build_search_rpm` | Build the percona-valkey-search binary RPM |
+| `--build_search_src_deb` | Build the percona-valkey-search source DEB |
+| `--build_search_deb` | Build the percona-valkey-search binary DEB |
+| `--search_version=VER` | valkey-search version (default: `1.2.0`) |
+| `--search_branch=REF` | valkey-search git ref (default: same as `--search_version`) |
+| `--search_repo=URL` | valkey-search source repo (default: `https://github.com/valkey-io/valkey-search.git`) |
 
 ## Testing packages
 
@@ -324,6 +367,7 @@ both DEB and RPM:
 |---------|-------------|
 | `percona-valkey-json` | JSON data type module (`libjson.so`), loaded manually |
 | `percona-valkey-bloom` | Bloom filter module (`libvalkey_bloom.so`), loaded manually |
+| `percona-valkey-search` | Vector/full-text search module (`libsearch.so`), loaded manually |
 
 ## License
 
