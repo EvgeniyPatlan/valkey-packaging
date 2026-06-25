@@ -1,0 +1,19 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: valkey-search
+Source: https://github.com/valkey-io/valkey-search
+
+Files: *
+Copyright: 2024-2025 valkey-search contributors
+License: BSD-3-Clause
+
+Files: third_party/*
+Copyright: see each component's own license metadata
+License: ICU AND Apache-2.0 AND BSD-3-Clause
+ Bundled/third-party components (ICU, and the gRPC/Protobuf/Abseil/highwayhash
+ dependencies fetched and compiled at build time) retain their own upstream
+ licenses; refer to THIRD_PARTY_NOTICES and each component's LICENSE.
+
+License: BSD-3-Clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the conditions of the BSD 3-Clause
+ License are met. See the upstream LICENSE file for the full text.
