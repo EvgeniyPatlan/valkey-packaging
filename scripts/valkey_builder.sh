@@ -811,12 +811,19 @@ install_deps_bloom() {
     if [[ "$OS" == "rpm" ]]; then
         local pkg_mgr="yum"
         command -v dnf &>/dev/null && pkg_mgr="dnf"
+        # Do NOT install the full 'curl' package: Amazon Linux 2023 ships
+        # curl-minimal (which already provides the curl command), and
+        # 'dnf install curl' fails with an unresolvable conflict against it.
+        # curl/curl-minimal is present on all RPM targets, so rely on it.
         $pkg_mgr -y install \
-            gcc gcc-c++ make git tar gzip curl ca-certificates pkgconfig python3 \
+            gcc gcc-c++ make git tar gzip ca-certificates pkgconfig python3 \
             clang clang-devel rpm-build rpmdevtools \
         || $pkg_mgr -y install \
-            gcc gcc-c++ make git tar gzip curl ca-certificates pkgconfig python3 \
+            gcc gcc-c++ make git tar gzip ca-certificates pkgconfig python3 \
             clang rpm-build rpmdevtools
+        # Safety net only if no curl command exists at all (rustup needs it):
+        # use --allowerasing so it can replace curl-minimal where applicable.
+        command -v curl >/dev/null 2>&1 || $pkg_mgr -y install --allowerasing curl || true
     else
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
