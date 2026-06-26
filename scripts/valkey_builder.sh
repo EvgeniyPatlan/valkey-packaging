@@ -872,10 +872,15 @@ install_deps_search() {
             oracle) $pkg_mgr -y install "oracle-epel-release-el${RHEL}" || true ;;
             rhel)   $pkg_mgr -y install epel-release || true ;;
         esac
+        # Core tools — must succeed (available in base/AppStream on every RPM
+        # target). Bundling these with the EPEL-only ninja-build behind a single
+        # '|| true' previously let a missing ninja silently drop git, which then
+        # broke the get_search_sources stage with 'git: command not found'.
         $pkg_mgr -y install \
-            gcc gcc-c++ cmake ninja-build make git autoconf automake libtool \
-            openssl-devel systemd-devel pkgconfig rpm-build rpmdevtools tar gzip \
-            || true
+            gcc gcc-c++ make git tar gzip autoconf automake libtool \
+            openssl-devel systemd-devel pkgconfig rpm-build rpmdevtools cmake
+        # ninja-build (from EPEL on RHEL) — best-effort.
+        $pkg_mgr -y install ninja-build || log_warn "ninja-build not available"
         # C++20 toolchain (RHEL 8/9 default gcc < 12); best-effort, %build sources it.
         $pkg_mgr -y install gcc-toolset-13 \
             || $pkg_mgr -y install gcc-toolset-14 \
