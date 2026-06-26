@@ -768,12 +768,15 @@ install_deps_json() {
     fi
 
     local channel="${VALKEY_REPO_CHANNEL:-testing}"
+    # Percona repo that ships the existing valkey packages (percona-valkey-devel).
+    # For 9.1 the percona-release component is "valkey-91" (override if needed).
+    local repo_name="${VALKEY_REPO_NAME:-valkey-91}"
 
     if [[ "$OS" == "rpm" ]]; then
         local pkg_mgr="yum"
         command -v dnf &>/dev/null && pkg_mgr="dnf"
         $pkg_mgr -y install https://repo.percona.com/yum/percona-release-latest.noarch.rpm
-        percona-release enable-only valkey "${channel}" || percona-release enable valkey "${channel}"
+        percona-release enable-only "${repo_name}" "${channel}" || percona-release enable "${repo_name}" "${channel}"
         $pkg_mgr -y install \
             gcc-c++ cmake make git tar gzip rpm-build rpmdevtools \
             percona-valkey-devel
@@ -783,7 +786,7 @@ install_deps_json() {
         apt-get -y install wget ca-certificates gnupg lsb-release
         wget -qO /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb
         dpkg -i /tmp/percona-release.deb || apt-get install -f -y
-        percona-release enable-only valkey "${channel}" || percona-release enable valkey "${channel}"
+        percona-release enable-only "${repo_name}" "${channel}" || percona-release enable "${repo_name}" "${channel}"
         apt-get update
         apt-get -y install \
             debhelper devscripts dh-exec dpkg-dev fakeroot \
