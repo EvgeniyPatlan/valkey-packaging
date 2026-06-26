@@ -991,9 +991,11 @@ build_json_srpm() {
     rpmbuild -bs --define "_topdir ${WORKDIR}/json_rpmbuild" --define "dist .generic" \
         "json_rpmbuild/SPECS/${JSON_PACKAGE_NAME}.spec"
 
-    # Keep json SRPMs in a dedicated dir so the server build_rpm glob
-    # (percona-valkey*.src.rpm) never picks them up by mistake.
-    copy_artifacts "json_srpm" json_rpmbuild/SRPMS/*.src.rpm
+    # SRPMs go to the shared srpm/ dir (same as the server build and what the
+    # Jenkins pipeline pushes/pops). build_<module>_rpm finds its own by a
+    # module-specific glob, and the server build_rpm runs before any module
+    # SRPM exists, so there is no cross-pickup.
+    copy_artifacts "srpm" json_rpmbuild/SRPMS/*.src.rpm
 }
 
 # ---------------------------------------------------------------------------
@@ -1009,7 +1011,7 @@ build_json_rpm() {
         die "Cannot build rpm on a Debian-based system"
     fi
 
-    find_and_copy_artifact "json_srpm" "${JSON_PACKAGE_NAME}*.src.rpm"
+    find_and_copy_artifact "srpm" "${JSON_PACKAGE_NAME}*.src.rpm"
     local src_rpm="$FOUND_FILE"
 
     cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
@@ -1171,9 +1173,9 @@ build_json_source_deb() {
     ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
         || die "json source deb build failed"
 
-    copy_artifacts "json_source_deb" "${name}_${ver}-"*.dsc
-    copy_artifacts "json_source_deb" "${name}_${ver}.orig.tar.gz"
-    copy_artifacts "json_source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
+    copy_artifacts "source_deb" "${name}_${ver}-"*.dsc
+    copy_artifacts "source_deb" "${name}_${ver}.orig.tar.gz"
+    copy_artifacts "source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -1195,9 +1197,9 @@ build_json_deb() {
     local ver="${JSON_VERSION}"
 
     for ext in 'dsc' 'orig.tar.gz'; do
-        find_and_copy_artifact "json_source_deb" "${name}_${ver}*.${ext}"
+        find_and_copy_artifact "source_deb" "${name}_${ver}*.${ext}"
     done
-    find_and_copy_artifact "json_source_deb" "${name}_${ver}*.debian.tar.*" || true
+    find_and_copy_artifact "source_deb" "${name}_${ver}*.debian.tar.*" || true
 
     rm -rf "${name}-${ver}"
     local dsc
@@ -1241,7 +1243,7 @@ build_bloom_srpm() {
     rpmbuild -bs --define "_topdir ${WORKDIR}/bloom_rpmbuild" --define "dist .generic" \
         "bloom_rpmbuild/SPECS/${BLOOM_PACKAGE_NAME}.spec"
 
-    copy_artifacts "bloom_srpm" bloom_rpmbuild/SRPMS/*.src.rpm
+    copy_artifacts "srpm" bloom_rpmbuild/SRPMS/*.src.rpm
 }
 
 # ---------------------------------------------------------------------------
@@ -1257,7 +1259,7 @@ build_bloom_rpm() {
         die "Cannot build rpm on a Debian-based system"
     fi
 
-    find_and_copy_artifact "bloom_srpm" "${BLOOM_PACKAGE_NAME}*.src.rpm"
+    find_and_copy_artifact "srpm" "${BLOOM_PACKAGE_NAME}*.src.rpm"
     local src_rpm="$FOUND_FILE"
 
     cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
@@ -1304,9 +1306,9 @@ build_bloom_source_deb() {
     ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
         || die "bloom source deb build failed"
 
-    copy_artifacts "bloom_source_deb" "${name}_${ver}-"*.dsc
-    copy_artifacts "bloom_source_deb" "${name}_${ver}.orig.tar.gz"
-    copy_artifacts "bloom_source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
+    copy_artifacts "source_deb" "${name}_${ver}-"*.dsc
+    copy_artifacts "source_deb" "${name}_${ver}.orig.tar.gz"
+    copy_artifacts "source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -1328,9 +1330,9 @@ build_bloom_deb() {
     local ver="${BLOOM_VERSION}"
 
     for ext in 'dsc' 'orig.tar.gz'; do
-        find_and_copy_artifact "bloom_source_deb" "${name}_${ver}*.${ext}"
+        find_and_copy_artifact "source_deb" "${name}_${ver}*.${ext}"
     done
-    find_and_copy_artifact "bloom_source_deb" "${name}_${ver}*.debian.tar.*" || true
+    find_and_copy_artifact "source_deb" "${name}_${ver}*.debian.tar.*" || true
 
     rm -rf "${name}-${ver}"
     local dsc
@@ -1374,7 +1376,7 @@ build_search_srpm() {
     rpmbuild -bs --define "_topdir ${WORKDIR}/search_rpmbuild" --define "dist .generic" \
         "search_rpmbuild/SPECS/${SEARCH_PACKAGE_NAME}.spec"
 
-    copy_artifacts "search_srpm" search_rpmbuild/SRPMS/*.src.rpm
+    copy_artifacts "srpm" search_rpmbuild/SRPMS/*.src.rpm
 }
 
 # ---------------------------------------------------------------------------
@@ -1390,7 +1392,7 @@ build_search_rpm() {
         die "Cannot build rpm on a Debian-based system"
     fi
 
-    find_and_copy_artifact "search_srpm" "${SEARCH_PACKAGE_NAME}*.src.rpm"
+    find_and_copy_artifact "srpm" "${SEARCH_PACKAGE_NAME}*.src.rpm"
     local src_rpm="$FOUND_FILE"
 
     cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
@@ -1437,9 +1439,9 @@ build_search_source_deb() {
     ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
         || die "search source deb build failed"
 
-    copy_artifacts "search_source_deb" "${name}_${ver}-"*.dsc
-    copy_artifacts "search_source_deb" "${name}_${ver}.orig.tar.gz"
-    copy_artifacts "search_source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
+    copy_artifacts "source_deb" "${name}_${ver}-"*.dsc
+    copy_artifacts "source_deb" "${name}_${ver}.orig.tar.gz"
+    copy_artifacts "source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -1461,9 +1463,9 @@ build_search_deb() {
     local ver="${SEARCH_VERSION}"
 
     for ext in 'dsc' 'orig.tar.gz'; do
-        find_and_copy_artifact "search_source_deb" "${name}_${ver}*.${ext}"
+        find_and_copy_artifact "source_deb" "${name}_${ver}*.${ext}"
     done
-    find_and_copy_artifact "search_source_deb" "${name}_${ver}*.debian.tar.*" || true
+    find_and_copy_artifact "source_deb" "${name}_${ver}*.debian.tar.*" || true
 
     rm -rf "${name}-${ver}"
     local dsc
