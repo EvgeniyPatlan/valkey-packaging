@@ -16,7 +16,6 @@ URL:            https://github.com/valkey-io/valkey-search
 Source0:        percona-valkey-search-%{version}.tar.gz
 
 BuildRequires:  cmake >= 3.16
-BuildRequires:  ninja-build
 BuildRequires:  make
 BuildRequires:  git
 BuildRequires:  autoconf
@@ -56,6 +55,9 @@ for ts in gcc-toolset-13 gcc-toolset-14 gcc-toolset-12; do
 done
 # build.sh builds ICU from source, FetchContent-builds gRPC/Protobuf/Abseil/
 # highwayhash, then compiles the module -> .build-release/libsearch.so.
+# Use the Unix Makefiles generator (make is always in base; avoids depending on
+# ninja-build, which on RHEL lives in EPEL and isn't reliably available).
+export CMAKE_GENERATOR="Unix Makefiles"
 CMAKE_EXTRA_ARGS="-DBUILD_UNIT_TESTS=OFF" ./build.sh --jobs=%{?_smp_build_ncpus}%{!?_smp_build_ncpus:$(nproc)}
 
 %install

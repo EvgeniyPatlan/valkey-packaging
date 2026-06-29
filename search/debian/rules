@@ -4,6 +4,9 @@
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 # Skip building the unit-test binaries (build.sh forwards CMAKE_EXTRA_ARGS to cmake).
 export CMAKE_EXTRA_ARGS = -DBUILD_UNIT_TESTS=OFF
+# Use the Unix Makefiles generator (make), so the build doesn't depend on
+# ninja-build — keeps the toolchain uniform with the RPM build.
+export CMAKE_GENERATOR = Unix Makefiles
 
 # valkey-search needs a C++20 compiler (g++ >= 12). Prefer g++-12 when present
 # (e.g. Ubuntu jammy ships g++ 11 by default); bookworm/noble default g++ is >= 12.
