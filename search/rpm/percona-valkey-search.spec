@@ -57,6 +57,17 @@ else
     for v in 14 13 12; do
         if command -v gcc${v}-g++ >/dev/null 2>&1; then
             export CC="gcc${v}-gcc" CXX="gcc${v}-g++"
+            # The RPM build flags load the system annobin gcc plugin (and other
+            # gcc-specific specs) built for the DEFAULT gcc. The alternate gcc${v}
+            # (e.g. Amazon Linux gcc14) cannot load them, so the very first compile
+            # fails with "C compiler cannot create executables". gcc-toolset ships
+            # its own matching annobin, but a plain gccNN package does not — drop
+            # the system-gcc -specs flags for this build.
+            for _f in CFLAGS CXXFLAGS FFLAGS FCFLAGS LDFLAGS; do
+                eval "_v=\${$_f:-}"
+                _v="$(printf '%s' "$_v" | sed -E 's@-specs=/usr/lib/rpm/redhat/redhat-(annobin-cc1|hardened-cc1|hardened-ld)@@g')"
+                eval "export $_f=\"\$_v\""
+            done
             break
         fi
     done
