@@ -559,16 +559,27 @@ get_search_sources() {
     #     with -ffat-lto-objects; GCC 12 (the toolchain on Ubuntu jammy and other
     #     older-gcc distros) has an LTO bug — "multiple prevailing defs for
     #     '__ct_comp'" — that fails the link. The module is fine without LTO.
-    #  2) Skip the vmsdk unit tests. vmsdk/CMakeLists.txt adds its testing/ subdir
-    #     unconditionally (BUILD_UNIT_TESTS=OFF doesn't reach it), so those test
-    #     binaries — each statically linking the whole gRPC/Abseil tree — build for
-    #     nothing and were the targets hitting the LTO failure.
-    log_info "Patching valkey-search sources (disable LTO, skip vmsdk tests) ..."
+    #  2) Force the unit tests off. build.sh hard-codes -DBUILD_UNIT_TESTS=ON and
+    #     the CMAKE_EXTRA_ARGS=-DBUILD_UNIT_TESTS=OFF override does not reliably win
+    #     in the rpmbuild path, so the test binaries build anyway. They are test
+    #     EXECUTABLES (static link → need every libstdc++ symbol) and on
+    #     gcc-toolset's static libstdc++ they fail with "undefined reference to
+    #     std::...". They aren't needed for packaging; the module is a shared lib
+    #     (no --no-undefined) and links fine. Patch build.sh to OFF, and guard
+    #     vmsdk/CMakeLists.txt (which adds its testing/ subdir unconditionally) so
+    #     it honours the flag too.
+    log_info "Patching valkey-search sources (disable LTO, disable unit tests) ..."
     local vs_cmake="${srcdir}/cmake/Modules/valkey_search.cmake"
     if [[ -f "$vs_cmake" ]]; then
         sed -i 's/-ffat-lto-objects/-fno-lto/g; s/ -flto)/ -fno-lto)/g' "$vs_cmake"
     else
         log_warn "valkey_search.cmake not found — LTO not disabled (upstream layout changed?)"
+    fi
+    local vs_build="${srcdir}/build.sh"
+    if [[ -f "$vs_build" ]]; then
+        sed -i 's/-DBUILD_UNIT_TESTS=ON/-DBUILD_UNIT_TESTS=OFF/g' "$vs_build"
+    else
+        log_warn "build.sh not found — unit tests not forced off (upstream layout changed?)"
     fi
     local vmsdk_cmake="${srcdir}/vmsdk/CMakeLists.txt"
     if [[ -f "$vmsdk_cmake" ]]; then
