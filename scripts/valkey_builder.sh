@@ -559,6 +559,10 @@ get_search_sources() {
     #     with -ffat-lto-objects; GCC 12 (the toolchain on Ubuntu jammy and other
     #     older-gcc distros) has an LTO bug — "multiple prevailing defs for
     #     '__ct_comp'" — that fails the link. The module is fine without LTO.
+    #     This MUST also cover the vendored snowball stemmer, which otherwise keeps
+    #     IPO + -fno-fat-lto-objects (slim, bytecode-only objects). Linking those
+    #     into a -fno-lto module drops their machine code, so the module loads with
+    #     "undefined symbol: sb_stemmer_length". Skip snowball's IPO block too.
     #  2) Remove the unit-test trees outright. They build test EXECUTABLES (not
     #     needed for packaging) that fail to link on some toolchains: gcc-toolset's
     #     static libstdc++ leaves std:: symbols undefined, and the top-level
@@ -573,6 +577,12 @@ get_search_sources() {
         sed -i 's/-ffat-lto-objects/-fno-lto/g; s/ -flto)/ -fno-lto)/g' "$vs_cmake"
     else
         log_warn "valkey_search.cmake not found — LTO not disabled (upstream layout changed?)"
+    fi
+    # Snowball stemmer: skip its IPO/LTO block so it emits normal (machine-code)
+    # objects that link into the -fno-lto module (else sb_stemmer_* is undefined).
+    local snow_cmake="${srcdir}/third_party/snowball/CMakeLists.txt"
+    if [[ -f "$snow_cmake" ]]; then
+        sed -i 's/^\([[:space:]]*\)if(lto_supported)/\1if(FALSE) # IPO off: module links -fno-lto/' "$snow_cmake"
     fi
     local kill_tests='s/^\([[:space:]]*\)add_subdirectory(testing)/\1# add_subdirectory(testing) # disabled for packaging/'
     [[ -f "${srcdir}/CMakeLists.txt" ]]       && sed -i "$kill_tests" "${srcdir}/CMakeLists.txt"
