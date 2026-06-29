@@ -96,7 +96,7 @@ Usage: $0 [OPTIONS]
         --bloom_version=VER             valkey-bloom version (default: ${DEFAULT_BLOOM_VERSION})
         --bloom_branch=REF              valkey-bloom git ref (default: same as --bloom_version)
         --bloom_repo=URL                valkey-bloom source repo (default: ${DEFAULT_BLOOM_REPO})
-        --search_deps                   Install valkey-search build deps (g++>=12 toolchain, cmake, ninja, ...)
+        --search_deps                   Install valkey-search build deps (g++>=12 toolchain, cmake, make, ...)
         --get_search_sources            Fetch valkey-search into a source tarball
         --build_search_src_rpm          Build the percona-valkey-search source RPM
         --build_search_rpm              Build the percona-valkey-search binary RPM
@@ -851,9 +851,10 @@ install_deps_bloom() {
 
 # ---------------------------------------------------------------------------
 # install_deps_search — build deps for the valkey-search (C++20) module.
-#   Needs cmake/ninja, autotools (ICU), openssl/systemd headers, git (the build
+#   Needs cmake + make, autotools (ICU), openssl/systemd headers, git (the build
 #   FetchContent-clones gRPC/Protobuf/Abseil), and a C++20 compiler (g++ >= 12):
-#   gcc-toolset on RHEL, g++-12 on Debian/Ubuntu. Triggered by --search_deps.
+#   gcc-toolset on RHEL, g++-12 on Debian/Ubuntu. The build uses the Unix
+#   Makefiles generator, so ninja-build is not required. Triggered by --search_deps.
 # ---------------------------------------------------------------------------
 install_deps_search() {
     if [[ "$SEARCH_DEPS" -eq 0 ]]; then
@@ -867,20 +868,12 @@ install_deps_search() {
     if [[ "$OS" == "rpm" ]]; then
         local pkg_mgr="yum"
         command -v dnf &>/dev/null && pkg_mgr="dnf"
-        # EPEL provides ninja-build on RHEL-family.
-        case "$PLATFORM_FAMILY" in
-            oracle) $pkg_mgr -y install "oracle-epel-release-el${RHEL}" || true ;;
-            rhel)   $pkg_mgr -y install epel-release || true ;;
-        esac
-        # Core tools — must succeed (available in base/AppStream on every RPM
-        # target). Bundling these with the EPEL-only ninja-build behind a single
-        # '|| true' previously let a missing ninja silently drop git, which then
-        # broke the get_search_sources stage with 'git: command not found'.
+        # Core build tools — all in base/AppStream on every RPM target. The build
+        # uses the Unix Makefiles generator (make), so ninja-build (EPEL-only on
+        # RHEL, not reliably available) is NOT needed.
         $pkg_mgr -y install \
             gcc gcc-c++ make git tar gzip autoconf automake libtool \
             openssl-devel systemd-devel pkgconfig rpm-build rpmdevtools cmake
-        # ninja-build (from EPEL on RHEL) — best-effort.
-        $pkg_mgr -y install ninja-build || log_warn "ninja-build not available"
         # C++20 toolchain (RHEL 8/9 default gcc < 12); best-effort, %build sources it.
         $pkg_mgr -y install gcc-toolset-13 \
             || $pkg_mgr -y install gcc-toolset-14 \
@@ -891,7 +884,7 @@ install_deps_search() {
         apt-get update
         apt-get -y install \
             build-essential debhelper devscripts dh-exec dpkg-dev fakeroot \
-            cmake ninja-build make git autoconf automake libtool pkg-config \
+            cmake make git autoconf automake libtool pkg-config \
             libssl-dev libsystemd-dev ca-certificates
         # Prefer g++-12 where the default is older (e.g. Ubuntu jammy); best-effort.
         apt-get -y install g++-12 gcc-12 || true
