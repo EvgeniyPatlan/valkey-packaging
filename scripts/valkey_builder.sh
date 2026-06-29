@@ -874,11 +874,18 @@ install_deps_search() {
         $pkg_mgr -y install \
             gcc gcc-c++ make git tar gzip autoconf automake libtool \
             openssl-devel systemd-devel pkgconfig rpm-build rpmdevtools cmake
-        # C++20 toolchain (RHEL 8/9 default gcc < 12); best-effort, %build sources it.
-        $pkg_mgr -y install gcc-toolset-13 \
-            || $pkg_mgr -y install gcc-toolset-14 \
-            || $pkg_mgr -y install gcc-toolset-12 \
-            || true
+        # C++20 toolchain (g++ >= 12) — provided differently per distro; %build
+        # picks it up. Amazon Linux 2023 has no gcc-toolset but ships gcc14
+        # (binaries named gcc14-g++/gcc14-gcc); RHEL 8/9 use gcc-toolset; OL10 /
+        # Fedora already default to gcc >= 12.
+        if [[ "$PLATFORM_FAMILY" == "amazon" ]]; then
+            $pkg_mgr -y install gcc14 gcc14-c++ || true
+        else
+            $pkg_mgr -y install gcc-toolset-13 \
+                || $pkg_mgr -y install gcc-toolset-14 \
+                || $pkg_mgr -y install gcc-toolset-12 \
+                || true
+        fi
     else
         export DEBIAN_FRONTEND=noninteractive
         apt-get update

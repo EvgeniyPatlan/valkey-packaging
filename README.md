@@ -175,9 +175,10 @@ scripts/valkey_builder.sh \
 #   --build_search_src_deb --build_search_deb
 ```
 
-`--search_deps` installs cmake, ninja, autotools (for ICU), the openssl/systemd
-headers, and a **C++20 toolchain (g++ ≥ 12)** — gcc-toolset on RHEL, `g++-12` on
-Debian/Ubuntu. The build then runs upstream `build.sh`, which **compiles
+`--search_deps` installs cmake, make, autotools (for ICU), the openssl/systemd
+headers, and a **C++20 toolchain (g++ ≥ 12)** — gcc-toolset on RHEL, `gcc14` on
+Amazon Linux 2023, `g++-12` on Debian/Ubuntu. The build then runs upstream
+`build.sh` (with the Unix Makefiles generator), which **compiles
 gRPC, Protobuf, Abseil, highwayhash and ICU from source** and links the module
 → `libsearch.so` (this needs **build-time network access** and is a heavy,
 long-running build). The resulting `percona-valkey-search` package installs
@@ -187,9 +188,9 @@ shows `name=search`; try `FT.CREATE` / `FT._LIST` / `FT.SEARCH`).
 
 > **Note:** valkey-search requires a C++20 compiler (g++ ≥ 12). On distros whose
 > default gcc is older (Oracle Linux 8, Amazon Linux 2023, Debian bullseye),
-> `--search_deps` installs a newer toolchain (gcc-toolset on RHEL/Amazon, `g++-12`
-> on Debian/Ubuntu) and the build uses it. So the full distro/arch matrix is
-> supported, same as the other modules.
+> `--search_deps` installs a newer toolchain (gcc-toolset on RHEL, `gcc14` on
+> Amazon Linux 2023, `g++-12` on Debian/Ubuntu) and `%build`/`rules` selects it.
+> So the full distro/arch matrix is supported, same as the other modules.
 
 ### Builder flags reference
 

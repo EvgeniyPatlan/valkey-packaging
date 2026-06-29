@@ -45,14 +45,22 @@ highwayhash) from source at build time, which requires network access.
 %autosetup -n percona-valkey-search-%{version}
 
 %build
-# Enable a C++20 toolchain (gcc-toolset) if one is installed; RHEL 8/9 default
-# gcc is < 12, so --search_deps installs gcc-toolset and we source it here.
-for ts in gcc-toolset-13 gcc-toolset-14 gcc-toolset-12; do
-    if [ -f /opt/rh/${ts}/enable ]; then
-        source /opt/rh/${ts}/enable
-        break
-    fi
-done
+# Select a C++20 toolchain (g++ >= 12). RHEL 8/9 default gcc is < 12 and Amazon
+# Linux 2023 ships gcc 11 by default, so --search_deps installs a newer one and
+# we pick it here, in order:
+#   1) a gcc-toolset (RHEL 8/9, via SCL enable script)
+#   2) an Amazon Linux gccNN package (binaries named gccNN-g++/gccNN-gcc)
+#   3) the system default (Oracle Linux 10 / Fedora already ship gcc >= 12)
+if ls /opt/rh/gcc-toolset-*/enable >/dev/null 2>&1; then
+    source "$(ls /opt/rh/gcc-toolset-*/enable | sort -V | tail -1)"
+else
+    for v in 14 13 12; do
+        if command -v gcc${v}-g++ >/dev/null 2>&1; then
+            export CC="gcc${v}-gcc" CXX="gcc${v}-g++"
+            break
+        fi
+    done
+fi
 # build.sh builds ICU from source, FetchContent-builds gRPC/Protobuf/Abseil/
 # highwayhash, then compiles the module -> .build-release/libsearch.so.
 # Use the Unix Makefiles generator (make is always in base; avoids depending on
