@@ -187,10 +187,16 @@ long-running build). The resulting `percona-valkey-search` package installs
 shows `name=search`; try `FT.CREATE` / `FT._LIST` / `FT.SEARCH`).
 
 > **Note:** valkey-search requires a C++20 compiler (g++ ≥ 12). On distros whose
-> default gcc is older (Oracle Linux 8, Amazon Linux 2023, Debian bullseye),
-> `--search_deps` installs a newer toolchain (gcc-toolset on RHEL, `gcc14` on
-> Amazon Linux 2023, `g++-12` on Debian/Ubuntu) and `%build`/`rules` selects it.
-> So the full distro/arch matrix is supported, same as the other modules.
+> default gcc is older but a newer one is available, `--search_deps` installs it
+> and `%build`/`rules` selects it: gcc-toolset on Oracle Linux 8/9, `gcc14` on
+> Amazon Linux 2023, `g++-12` on Ubuntu jammy (bookworm/noble/trixie already
+> default to ≥ 12).
+>
+> **Debian bullseye (11) is not supported for valkey-search** — it has no
+> g++ ≥ 12 in base or backports (newest is g++-11) and its clang is < 16, so the
+> module cannot be built there. The search build matrix therefore starts at
+> Debian bookworm. `percona-valkey-json`, `percona-valkey-bloom`, and the server
+> still build on bullseye.
 
 ### Builder flags reference
 
