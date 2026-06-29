@@ -554,6 +554,27 @@ get_search_sources() {
     cp "${BUILDER_SCRIPT_DIR}/../search/README.packaging.md" "${srcdir}/README.packaging.md" \
         || die "search/README.packaging.md is missing"
 
+    # Build-time source tweaks (done here so RPM and DEB build identically):
+    #  1) Disable LTO. The release build links the module with -flto and compiles
+    #     with -ffat-lto-objects; GCC 12 (the toolchain on Ubuntu jammy and other
+    #     older-gcc distros) has an LTO bug — "multiple prevailing defs for
+    #     '__ct_comp'" — that fails the link. The module is fine without LTO.
+    #  2) Skip the vmsdk unit tests. vmsdk/CMakeLists.txt adds its testing/ subdir
+    #     unconditionally (BUILD_UNIT_TESTS=OFF doesn't reach it), so those test
+    #     binaries — each statically linking the whole gRPC/Abseil tree — build for
+    #     nothing and were the targets hitting the LTO failure.
+    log_info "Patching valkey-search sources (disable LTO, skip vmsdk tests) ..."
+    local vs_cmake="${srcdir}/cmake/Modules/valkey_search.cmake"
+    if [[ -f "$vs_cmake" ]]; then
+        sed -i 's/-ffat-lto-objects/-fno-lto/g; s/ -flto)/ -fno-lto)/g' "$vs_cmake"
+    else
+        log_warn "valkey_search.cmake not found — LTO not disabled (upstream layout changed?)"
+    fi
+    local vmsdk_cmake="${srcdir}/vmsdk/CMakeLists.txt"
+    if [[ -f "$vmsdk_cmake" ]]; then
+        sed -i 's|^add_subdirectory(testing)|if(BUILD_UNIT_TESTS)\n  add_subdirectory(testing)\nendif()|' "$vmsdk_cmake"
+    fi
+
     log_info "Stripping VCS metadata ..."
     find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
