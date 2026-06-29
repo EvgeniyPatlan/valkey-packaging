@@ -559,32 +559,26 @@ get_search_sources() {
     #     with -ffat-lto-objects; GCC 12 (the toolchain on Ubuntu jammy and other
     #     older-gcc distros) has an LTO bug — "multiple prevailing defs for
     #     '__ct_comp'" — that fails the link. The module is fine without LTO.
-    #  2) Force the unit tests off. build.sh hard-codes -DBUILD_UNIT_TESTS=ON and
-    #     the CMAKE_EXTRA_ARGS=-DBUILD_UNIT_TESTS=OFF override does not reliably win
-    #     in the rpmbuild path, so the test binaries build anyway. They are test
-    #     EXECUTABLES (static link → need every libstdc++ symbol) and on
-    #     gcc-toolset's static libstdc++ they fail with "undefined reference to
-    #     std::...". They aren't needed for packaging; the module is a shared lib
-    #     (no --no-undefined) and links fine. Patch build.sh to OFF, and guard
-    #     vmsdk/CMakeLists.txt (which adds its testing/ subdir unconditionally) so
-    #     it honours the flag too.
-    log_info "Patching valkey-search sources (disable LTO, disable unit tests) ..."
+    #  2) Remove the unit-test trees outright. They build test EXECUTABLES (not
+    #     needed for packaging) that fail to link on some toolchains: gcc-toolset's
+    #     static libstdc++ leaves std:: symbols undefined, and the top-level
+    #     testing/ misses test-only link deps. -DBUILD_UNIT_TESTS=OFF (via build.sh
+    #     or CMAKE_EXTRA_ARGS) did not reliably take effect, so instead comment out
+    #     the add_subdirectory(testing) calls — flag-independent, nothing can re-add
+    #     a removed subdir. The module is a shared lib (no --no-undefined) and links
+    #     fine on its own. (testing_infra is a plain lib and is left untouched.)
+    log_info "Patching valkey-search sources (disable LTO, remove unit tests) ..."
     local vs_cmake="${srcdir}/cmake/Modules/valkey_search.cmake"
     if [[ -f "$vs_cmake" ]]; then
         sed -i 's/-ffat-lto-objects/-fno-lto/g; s/ -flto)/ -fno-lto)/g' "$vs_cmake"
     else
         log_warn "valkey_search.cmake not found — LTO not disabled (upstream layout changed?)"
     fi
-    local vs_build="${srcdir}/build.sh"
-    if [[ -f "$vs_build" ]]; then
-        sed -i 's/-DBUILD_UNIT_TESTS=ON/-DBUILD_UNIT_TESTS=OFF/g' "$vs_build"
-    else
-        log_warn "build.sh not found — unit tests not forced off (upstream layout changed?)"
-    fi
-    local vmsdk_cmake="${srcdir}/vmsdk/CMakeLists.txt"
-    if [[ -f "$vmsdk_cmake" ]]; then
-        sed -i 's|^add_subdirectory(testing)|if(BUILD_UNIT_TESTS)\n  add_subdirectory(testing)\nendif()|' "$vmsdk_cmake"
-    fi
+    local kill_tests='s/^\([[:space:]]*\)add_subdirectory(testing)/\1# add_subdirectory(testing) # disabled for packaging/'
+    [[ -f "${srcdir}/CMakeLists.txt" ]]       && sed -i "$kill_tests" "${srcdir}/CMakeLists.txt"
+    [[ -f "${srcdir}/vmsdk/CMakeLists.txt" ]] && sed -i "$kill_tests" "${srcdir}/vmsdk/CMakeLists.txt"
+    # Belt-and-suspenders: also flip build.sh's hard-coded -DBUILD_UNIT_TESTS=ON.
+    [[ -f "${srcdir}/build.sh" ]] && sed -i 's/-DBUILD_UNIT_TESTS=ON/-DBUILD_UNIT_TESTS=OFF/g' "${srcdir}/build.sh"
 
     log_info "Stripping VCS metadata ..."
     find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
