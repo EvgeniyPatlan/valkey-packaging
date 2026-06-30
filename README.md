@@ -208,13 +208,13 @@ whole stack. It has no upstream source to compile, so there are no `*_deps` /
 (README + LICENSE) and packages the metadata.
 
 ```bash
-# RPM (noarch meta-package)
+# RPM (per-arch meta-package)
 scripts/valkey_builder.sh \
   --builddir=/tmp/BUILD \
   --get_bundle_sources \
   --build_bundle_src_rpm --build_bundle_rpm
 
-# DEB (arch:all meta-package)
+# DEB (per-arch meta-package)
 scripts/valkey_builder.sh \
   --builddir=/tmp/BUILD \
   --get_bundle_sources \
@@ -286,9 +286,9 @@ docker build -f docker/Dockerfile.bundle -t percona-valkey-bundle:9.1.0 docker/
 | `--search_repo=URL` | valkey-search source repo (default: `https://github.com/valkey-io/valkey-search.git`) |
 | `--get_bundle_sources` | Assemble the percona-valkey-bundle meta-package source tarball |
 | `--build_bundle_src_rpm` | Build the percona-valkey-bundle source RPM |
-| `--build_bundle_rpm` | Build the percona-valkey-bundle binary RPM (noarch meta) |
+| `--build_bundle_rpm` | Build the percona-valkey-bundle binary RPM (per-arch meta) |
 | `--build_bundle_src_deb` | Build the percona-valkey-bundle source DEB |
-| `--build_bundle_deb` | Build the percona-valkey-bundle binary DEB (arch:all meta) |
+| `--build_bundle_deb` | Build the percona-valkey-bundle binary DEB (per-arch meta) |
 | `--bundle_version=VER` | valkey-bundle version (default: `9.1.0`) |
 
 ## Testing packages

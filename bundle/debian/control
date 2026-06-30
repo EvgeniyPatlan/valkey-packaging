@@ -9,7 +9,7 @@ Homepage: https://github.com/valkey-io/valkey-bundle
 Rules-Requires-Root: no
 
 Package: percona-valkey-bundle
-Architecture: all
+Architecture: any
 Depends:
  ${misc:Depends},
  percona-valkey-server (>= 9.1.0),

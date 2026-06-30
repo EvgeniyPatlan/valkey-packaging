@@ -113,9 +113,9 @@ Usage: $0 [OPTIONS]
         --bundle_deps                   Install valkey-bundle packaging tools (rpm-build / debhelper)
         --get_bundle_sources            Assemble the percona-valkey-bundle meta-package source tarball
         --build_bundle_src_rpm          Build the percona-valkey-bundle source RPM
-        --build_bundle_rpm              Build the percona-valkey-bundle binary RPM (noarch meta)
+        --build_bundle_rpm              Build the percona-valkey-bundle binary RPM (per-arch meta)
         --build_bundle_src_deb          Build the percona-valkey-bundle source DEB
-        --build_bundle_deb              Build the percona-valkey-bundle binary DEB (arch:all meta)
+        --build_bundle_deb              Build the percona-valkey-bundle binary DEB (per-arch meta)
         --bundle_version=VER            valkey-bundle version (default: ${DEFAULT_BUNDLE_VERSION})
         --search_repo=URL               valkey-search source repo (default: ${DEFAULT_SEARCH_REPO})
         --help                          Print usage
@@ -1651,7 +1651,7 @@ build_bundle_srpm() {
 }
 
 # ---------------------------------------------------------------------------
-# build_bundle_rpm — binary (noarch) RPM for the percona-valkey-bundle meta-pkg
+# build_bundle_rpm — binary (per-arch) RPM for the percona-valkey-bundle meta-pkg
 # ---------------------------------------------------------------------------
 build_bundle_rpm() {
     if [[ "$BUNDLE_RPM" -eq 0 ]]; then
@@ -1716,7 +1716,7 @@ build_bundle_source_deb() {
 }
 
 # ---------------------------------------------------------------------------
-# build_bundle_deb — binary (arch:all) DEB for the percona-valkey-bundle meta-pkg
+# build_bundle_deb — binary (per-arch) DEB for the percona-valkey-bundle meta-pkg
 # ---------------------------------------------------------------------------
 build_bundle_deb() {
     if [[ "$BUNDLE_DEB" -eq 0 ]]; then
