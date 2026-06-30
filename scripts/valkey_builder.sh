@@ -227,6 +227,27 @@ copy_artifacts() {
     cp "$@" "$CURDIR/$dest_subdir/"
 }
 
+# deb_apply_codename — append the build distro's codename to the DEB version,
+# producing <pkg>_<version>.<codename>_<arch>.deb. Percona's repo upload
+# (uploadDEBfromAWS) derives the target apt 'codename' from that filename
+# segment; without it the codename is parsed from the version tail (e.g. a
+# 9.1.0-1 build yields a bogus codename '0-1' and reprepro rejects it).
+# Run from inside the extracted Debian source tree (DEB-only tools).
+deb_apply_codename() {
+    local codename
+    codename="$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-}")"
+    [ -z "$codename" ] && codename="$(lsb_release -cs 2>/dev/null || true)"
+    if [ -z "$codename" ]; then
+        log_warn "Could not determine distro codename; DEB version left unsuffixed"
+        return 0
+    fi
+    [ -f debian/changelog ] || die "debian/changelog not found for codename stamping"
+    # Append .<codename> to the top entry's version and set its distribution to
+    # the codename. dpkg-buildpackage stamps that version, so the .deb filename
+    # becomes <pkg>_<version>.<codename>_<arch>.deb. Uses only sed (no devscripts).
+    sed -i "1s/^\([^ ]*\) (\([^)]*\)) [^;]*;/\1 (\2.${codename}) ${codename};/" debian/changelog
+}
+
 # ---------------------------------------------------------------------------
 # SBOM generation (Syft)
 # ---------------------------------------------------------------------------
@@ -1278,7 +1299,7 @@ build_json_deb() {
     [ -n "$dsc" ] || die "json dsc not found — run --build_json_src_deb first"
     dpkg-source -x "$dsc" "${name}-${ver}"
 
-    ( cd "${name}-${ver}" && dpkg-buildpackage -b -us -uc ) \
+    ( cd "${name}-${ver}" && deb_apply_codename && dpkg-buildpackage -b -us -uc ) \
         || die "json binary deb build failed"
 
     copy_artifacts "deb" "${name}_${ver}-"*_*.deb
@@ -1411,7 +1432,7 @@ build_bloom_deb() {
     [ -n "$dsc" ] || die "bloom dsc not found — run --build_bloom_src_deb first"
     dpkg-source -x "$dsc" "${name}-${ver}"
 
-    ( cd "${name}-${ver}" && dpkg-buildpackage -b -us -uc ) \
+    ( cd "${name}-${ver}" && deb_apply_codename && dpkg-buildpackage -b -us -uc ) \
         || die "bloom binary deb build failed"
 
     copy_artifacts "deb" "${name}_${ver}-"*_*.deb
@@ -1544,7 +1565,7 @@ build_search_deb() {
     [ -n "$dsc" ] || die "search dsc not found — run --build_search_src_deb first"
     dpkg-source -x "$dsc" "${name}-${ver}"
 
-    ( cd "${name}-${ver}" && dpkg-buildpackage -b -us -uc ) \
+    ( cd "${name}-${ver}" && deb_apply_codename && dpkg-buildpackage -b -us -uc ) \
         || die "search binary deb build failed"
 
     copy_artifacts "deb" "${name}_${ver}-"*_*.deb
@@ -1744,7 +1765,7 @@ build_bundle_deb() {
     [ -n "$dsc" ] || die "bundle dsc not found — run --build_bundle_src_deb first"
     dpkg-source -x "$dsc" "${name}-${ver}"
 
-    ( cd "${name}-${ver}" && dpkg-buildpackage -b -us -uc ) \
+    ( cd "${name}-${ver}" && deb_apply_codename && dpkg-buildpackage -b -us -uc ) \
         || die "bundle binary deb build failed"
 
     copy_artifacts "deb" "${name}_${ver}-"*_*.deb
