@@ -36,6 +36,12 @@ readonly SEARCH_PACKAGE_NAME="percona-valkey-search"
 readonly DEFAULT_SEARCH_REPO="https://github.com/valkey-io/valkey-search.git"
 readonly DEFAULT_SEARCH_VERSION="1.2.0"
 
+# valkey-bundle meta-package: depends on the server + every module, ships no
+# payload of its own. No upstream source to compile — the "source" is a small
+# tarball (README + LICENSE) assembled from this repo's bundle/ dir.
+readonly BUNDLE_PACKAGE_NAME="percona-valkey-bundle"
+readonly DEFAULT_BUNDLE_VERSION="9.1.0"
+
 # Absolute path to the directory containing this script
 BUILDER_SCRIPT_DIR="$(dirname "$(readlink -e "${0}")")"
 readonly BUILDER_SCRIPT_DIR
@@ -104,6 +110,12 @@ Usage: $0 [OPTIONS]
         --build_search_deb              Build the percona-valkey-search binary DEB
         --search_version=VER            valkey-search version (default: ${DEFAULT_SEARCH_VERSION})
         --search_branch=REF             valkey-search git ref (default: same as --search_version)
+        --get_bundle_sources            Assemble the percona-valkey-bundle meta-package source tarball
+        --build_bundle_src_rpm          Build the percona-valkey-bundle source RPM
+        --build_bundle_rpm              Build the percona-valkey-bundle binary RPM (noarch meta)
+        --build_bundle_src_deb          Build the percona-valkey-bundle source DEB
+        --build_bundle_deb              Build the percona-valkey-bundle binary DEB (arch:all meta)
+        --bundle_version=VER            valkey-bundle version (default: ${DEFAULT_BUNDLE_VERSION})
         --search_repo=URL               valkey-search source repo (default: ${DEFAULT_SEARCH_REPO})
         --help                          Print usage
 Example: $0 --builddir=/tmp/BUILD --get_sources --build_src_rpm --build_rpm
@@ -157,6 +169,12 @@ parse_arguments() {
             --search_version=*)          SEARCH_VERSION="${arg#*=}" ;;
             --search_branch=*)           SEARCH_BRANCH="${arg#*=}" ;;
             --search_repo=*)             SEARCH_REPO="${arg#*=}" ;;
+            --get_bundle_sources=*|--get_bundle_sources) BUNDLE_SOURCE=1 ;;
+            --build_bundle_src_rpm=*|--build_bundle_src_rpm) BUNDLE_SRPM=1 ;;
+            --build_bundle_rpm=*|--build_bundle_rpm) BUNDLE_RPM=1 ;;
+            --build_bundle_src_deb=*|--build_bundle_src_deb) BUNDLE_SDEB=1 ;;
+            --build_bundle_deb=*|--build_bundle_deb) BUNDLE_DEB=1 ;;
+            --bundle_version=*)          BUNDLE_VERSION="${arg#*=}" ;;
             --help)                      usage ;;
             *)                           die "Unknown option: $arg" ;;
         esac
@@ -1530,6 +1548,182 @@ build_search_deb() {
     copy_artifacts "deb" "${name}_${ver}-"*_*.deb
 }
 
+# ---------------------------------------------------------------------------
+# get_bundle_sources — assemble the percona-valkey-bundle meta-package source.
+#   There is no upstream code to clone/compile; the tarball just carries the
+#   README + LICENSE so rpmbuild/dpkg have something to package the metadata on.
+# ---------------------------------------------------------------------------
+get_bundle_sources() {
+    if [[ "$BUNDLE_SOURCE" -eq 0 ]]; then
+        log_info "valkey-bundle sources will not be assembled"
+        return 0
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${BUNDLE_PACKAGE_NAME}-${BUNDLE_VERSION}"
+    local srcdir="${WORKDIR}/${name}"
+
+    log_info "Assembling ${name} (meta-package; no upstream source) ..."
+    rm -rf "${srcdir}"
+    mkdir -p "${srcdir}"
+    cp "${BUILDER_SCRIPT_DIR}/../bundle/README.md" "${srcdir}/README.md" \
+        || die "bundle/README.md is missing"
+    cp "${BUILDER_SCRIPT_DIR}/../bundle/LICENSE" "${srcdir}/LICENSE" \
+        || die "bundle/LICENSE is missing"
+
+    log_info "Creating ${name}.tar.gz ..."
+    tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
+        || die "Failed to create valkey-bundle source tarball"
+
+    cat > "${WORKDIR}/valkey-bundle.properties" <<EOF
+PRODUCT=${BUNDLE_PACKAGE_NAME}
+PRODUCT_FULL=${name}
+VERSION=${BUNDLE_VERSION}
+BUILD_NUMBER=${BUILD_NUMBER:-}
+BUILD_ID=${BUILD_ID:-}
+UPLOAD=UPLOAD/experimental/BUILDS/valkey-bundle/${name}/${BUNDLE_VERSION}/${BUILD_ID:-}
+EOF
+
+    copy_artifacts "source_tarball" "${name}.tar.gz"
+
+    cd "$CURDIR" || die "Cannot cd to $CURDIR"
+}
+
+# ---------------------------------------------------------------------------
+# build_bundle_srpm — source RPM for the percona-valkey-bundle meta-package
+# ---------------------------------------------------------------------------
+build_bundle_srpm() {
+    if [[ "$BUNDLE_SRPM" -eq 0 ]]; then
+        log_info "valkey-bundle SRC RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build src rpm on a Debian-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    find_and_copy_artifact "source_tarball" "${BUNDLE_PACKAGE_NAME}*.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    rm -fr bundle_rpmbuild
+    mkdir -vp bundle_rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
+
+    cp -av "${BUILDER_SCRIPT_DIR}/../bundle/rpm/${BUNDLE_PACKAGE_NAME}.spec" bundle_rpmbuild/SPECS/
+    mv -fv "$tarfile" bundle_rpmbuild/SOURCES/
+
+    # Allow --bundle_version to flow through to the package version.
+    sed -i "s/^Version:.*$/Version:        ${BUNDLE_VERSION}/" \
+        "bundle_rpmbuild/SPECS/${BUNDLE_PACKAGE_NAME}.spec"
+
+    rpmbuild -bs --define "_topdir ${WORKDIR}/bundle_rpmbuild" --define "dist .generic" \
+        "bundle_rpmbuild/SPECS/${BUNDLE_PACKAGE_NAME}.spec"
+
+    copy_artifacts "srpm" bundle_rpmbuild/SRPMS/*.src.rpm
+}
+
+# ---------------------------------------------------------------------------
+# build_bundle_rpm — binary (noarch) RPM for the percona-valkey-bundle meta-pkg
+# ---------------------------------------------------------------------------
+build_bundle_rpm() {
+    if [[ "$BUNDLE_RPM" -eq 0 ]]; then
+        log_info "valkey-bundle RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build rpm on a Debian-based system"
+    fi
+
+    find_and_copy_artifact "srpm" "${BUNDLE_PACKAGE_NAME}*.src.rpm"
+    local src_rpm="$FOUND_FILE"
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    rm -fr bundle_rb
+    mkdir -vp bundle_rb/{SOURCES,SPECS,BUILD,SRPMS,RPMS,BUILDROOT}
+    cp "$src_rpm" bundle_rb/SRPMS/
+
+    rpmbuild --define "_topdir ${WORKDIR}/bundle_rb" --define "dist .${OS_NAME}" \
+        --rebuild "bundle_rb/SRPMS/${src_rpm}"
+
+    copy_artifacts "rpm" bundle_rb/RPMS/*/*.rpm
+}
+
+# ---------------------------------------------------------------------------
+# build_bundle_source_deb — source DEB for the percona-valkey-bundle meta-pkg
+# ---------------------------------------------------------------------------
+build_bundle_source_deb() {
+    if [[ "$BUNDLE_SDEB" -eq 0 ]]; then
+        log_info "valkey-bundle source deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build source deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${BUNDLE_PACKAGE_NAME}"
+    local ver="${BUNDLE_VERSION}"
+
+    rm -rf "${name}-${ver}" "${name}_${ver}".orig.tar.gz "${name}_${ver}-"*
+
+    find_and_copy_artifact "source_tarball" "${name}*.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    cp "$tarfile" "${name}_${ver}.orig.tar.gz"
+    tar xf "$tarfile"
+
+    cp -r "${BUILDER_SCRIPT_DIR}/../bundle/debian" "${name}-${ver}/debian"
+    chmod +x "${name}-${ver}/debian/rules"
+
+    ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
+        || die "bundle source deb build failed"
+
+    copy_artifacts "source_deb" "${name}_${ver}-"*.dsc
+    copy_artifacts "source_deb" "${name}_${ver}.orig.tar.gz"
+    copy_artifacts "source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# build_bundle_deb — binary (arch:all) DEB for the percona-valkey-bundle meta-pkg
+# ---------------------------------------------------------------------------
+build_bundle_deb() {
+    if [[ "$BUNDLE_DEB" -eq 0 ]]; then
+        log_info "valkey-bundle deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${BUNDLE_PACKAGE_NAME}"
+    local ver="${BUNDLE_VERSION}"
+
+    for ext in 'dsc' 'orig.tar.gz'; do
+        find_and_copy_artifact "source_deb" "${name}_${ver}*.${ext}"
+    done
+    find_and_copy_artifact "source_deb" "${name}_${ver}*.debian.tar.*" || true
+
+    rm -rf "${name}-${ver}"
+    local dsc
+    dsc="$(basename "$(find . -maxdepth 1 -name "${name}_${ver}*.dsc" | sort | tail -n1)")"
+    [ -n "$dsc" ] || die "bundle dsc not found — run --build_bundle_src_deb first"
+    dpkg-source -x "$dsc" "${name}-${ver}"
+
+    ( cd "${name}-${ver}" && dpkg-buildpackage -b -us -uc ) \
+        || die "bundle binary deb build failed"
+
+    copy_artifacts "deb" "${name}_${ver}-"*_*.deb
+}
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -1578,6 +1772,12 @@ SEARCH_DEB=0
 SEARCH_REPO="$DEFAULT_SEARCH_REPO"
 SEARCH_VERSION="$DEFAULT_SEARCH_VERSION"
 SEARCH_BRANCH=""
+BUNDLE_SOURCE=0
+BUNDLE_SRPM=0
+BUNDLE_RPM=0
+BUNDLE_SDEB=0
+BUNDLE_DEB=0
+BUNDLE_VERSION="$DEFAULT_BUNDLE_VERSION"
 
 parse_arguments "$@"
 
@@ -1603,6 +1803,7 @@ get_sources
 get_json_sources
 get_bloom_sources
 get_search_sources
+get_bundle_sources
 build_srpm
 build_source_deb
 build_rpm
@@ -1619,3 +1820,7 @@ build_search_srpm
 build_search_rpm
 build_search_source_deb
 build_search_deb
+build_bundle_srpm
+build_bundle_rpm
+build_bundle_source_deb
+build_bundle_deb

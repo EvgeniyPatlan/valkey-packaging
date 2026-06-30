@@ -1,0 +1,31 @@
+Source: percona-valkey-bundle
+Section: database
+Priority: optional
+Maintainer: Evgeniy Patlan <evgeniy.patlan@percona.com>
+Build-Depends:
+ debhelper-compat (= 13),
+Standards-Version: 4.7.2
+Homepage: https://github.com/valkey-io/valkey-bundle
+Rules-Requires-Root: no
+
+Package: percona-valkey-bundle
+Architecture: all
+Depends:
+ ${misc:Depends},
+ percona-valkey-server (>= 9.1.0),
+ percona-valkey-json (>= 1.0.2),
+ percona-valkey-bloom (>= 1.0.1),
+ percona-valkey-search (>= 1.2.0),
+ percona-valkey-ldap (>= 1.1.0),
+Description: Percona Valkey server bundled with all supported modules
+ percona-valkey-bundle is a meta-package that installs the Percona Valkey
+ server together with all supported modules in one step:
+ .
+   * percona-valkey-json    (JSON.*  — native JSON data type)
+   * percona-valkey-bloom   (BF.*    — Bloom filters)
+   * percona-valkey-search  (FT.*    — vector / full-text search)
+   * percona-valkey-ldap    (LDAP authentication)
+ .
+ It contains no files of its own; it only declares dependencies. The modules
+ are installed into /usr/lib/valkey/modules but are not loaded automatically;
+ enable them with 'loadmodule' in valkey.conf or 'MODULE LOAD' at runtime.

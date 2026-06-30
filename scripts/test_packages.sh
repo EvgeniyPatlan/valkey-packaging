@@ -1396,6 +1396,36 @@ print_summary() {
     fi
 }
 
+test_bundle_meta() {
+    section_header "Test: bundle meta-package (percona-valkey-bundle)"
+
+    # Auto-skip when the bundle meta-package is not part of this run.
+    local installed=0
+    if [[ "$OS_FAMILY" == "rpm" ]]; then
+        rpm -q percona-valkey-bundle >/dev/null 2>&1 && installed=1
+    else
+        dpkg -s percona-valkey-bundle >/dev/null 2>&1 && installed=1
+    fi
+    if [[ "$installed" -ne 1 ]]; then
+        skip "percona-valkey-bundle not installed — skipping bundle tests"
+        return
+    fi
+    pass "percona-valkey-bundle is installed"
+
+    local module_dir
+    if [[ "$OS_FAMILY" == "rpm" ]]; then
+        module_dir="$(rpm --eval %{_libdir})/valkey/modules"
+    else
+        module_dir="/usr/lib/valkey/modules"
+    fi
+
+    # Installing the meta-package must have pulled in every module's .so.
+    assert_file_exists "${module_dir}/libjson.so"         "json module pulled in by bundle"
+    assert_file_exists "${module_dir}/libvalkey_bloom.so" "bloom module pulled in by bundle"
+    assert_file_exists "${module_dir}/libsearch.so"       "search module pulled in by bundle"
+    assert_file_exists "${module_dir}/libvalkey_ldap.so"  "ldap module pulled in by bundle"
+}
+
 ###############################################################################
 # Main
 ###############################################################################
@@ -1506,6 +1536,7 @@ main() {
     test_json_module
     test_bloom_module
     test_search_module
+    test_bundle_meta
 
     # Stop any lingering services before removal
     if has_systemd; then
