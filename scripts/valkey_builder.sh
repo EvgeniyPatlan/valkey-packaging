@@ -237,15 +237,17 @@ deb_apply_codename() {
     local codename
     codename="$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-}")"
     [ -z "$codename" ] && codename="$(lsb_release -cs 2>/dev/null || true)"
-    if [ -z "$codename" ]; then
-        log_warn "Could not determine distro codename; DEB version left unsuffixed"
-        return 0
-    fi
+    # Fail loudly rather than silently shipping a no-codename DEB that the repo
+    # upload then routes to a bogus apt distribution.
+    [ -n "$codename" ] || die "Could not determine distro codename for DEB version stamping"
     [ -f debian/changelog ] || die "debian/changelog not found for codename stamping"
     # Append .<codename> to the top entry's version and set its distribution to
     # the codename. dpkg-buildpackage stamps that version, so the .deb filename
     # becomes <pkg>_<version>.<codename>_<arch>.deb. Uses only sed (no devscripts).
     sed -i "1s/^\([^ ]*\) (\([^)]*\)) [^;]*;/\1 (\2.${codename}) ${codename};/" debian/changelog
+    # Verify the stamp took (catches any future changelog-format drift early).
+    head -1 debian/changelog | grep -q "(.*\.${codename}) ${codename};" \
+        || die "Failed to stamp codename '${codename}' into the DEB version (changelog format changed?)"
 }
 
 # ---------------------------------------------------------------------------
