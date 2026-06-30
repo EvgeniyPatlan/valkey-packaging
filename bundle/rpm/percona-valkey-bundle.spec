@@ -1,4 +1,7 @@
 %global valkey_modules_abi 1
+# Meta-package: no compiled sources, so an arch build must not try to produce a
+# -debuginfo/-debugsource subpackage (its %%files would be empty -> rpmbuild error).
+%global debug_package %{nil}
 
 Name:           percona-valkey-bundle
 Version:        9.1.0
