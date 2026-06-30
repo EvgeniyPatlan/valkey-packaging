@@ -31,6 +31,10 @@ override_dh_auto_install:
 	install -d debian/percona-valkey-json/usr/lib/valkey/modules
 	install -m 0755 obj-build/src/libjson.so \
 	    debian/percona-valkey-json/usr/lib/valkey/modules/libjson.so
+	# Embedded SBOM (SPDX + CycloneDX) of the module source tree.
+	install -d debian/percona-valkey-json/usr/share/percona-valkey-json/sbom
+	install -m 0644 sbom/percona-valkey-json.spdx.json sbom/percona-valkey-json.cdx.json \
+	    debian/percona-valkey-json/usr/share/percona-valkey-json/sbom/
 
 override_dh_fixperms:
 	dh_fixperms

@@ -62,10 +62,15 @@ cmake --build build -j$(nproc)
 install -d %{buildroot}%{valkey_modules_dir}
 install -m 0755 build/src/libjson.so %{buildroot}%{valkey_modules_dir}/libjson.so
 
+# Embedded SBOM (SPDX + CycloneDX) of the module source tree (incl. vendored deps).
+install -d %{buildroot}%{_datadir}/%{name}/sbom
+install -m 0644 sbom/%{name}.spdx.json sbom/%{name}.cdx.json %{buildroot}%{_datadir}/%{name}/sbom/
+
 %files
 %license LICENSE
 %doc README.md README.packaging.md
 %{valkey_modules_dir}/libjson.so
+%{_datadir}/%{name}/
 
 %changelog
 * Tue Jun 24 2026 Percona Build <info@percona.com> - 1.0.2-1

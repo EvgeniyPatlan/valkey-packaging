@@ -21,6 +21,10 @@ override_dh_auto_install:
 	install -d debian/percona-valkey-bloom/usr/lib/valkey/modules
 	install -m 0755 target/release/libvalkey_bloom.so \
 	    debian/percona-valkey-bloom/usr/lib/valkey/modules/libvalkey_bloom.so
+	# Embedded SBOM (SPDX + CycloneDX) of the module source tree.
+	install -d debian/percona-valkey-bloom/usr/share/percona-valkey-bloom/sbom
+	install -m 0644 sbom/percona-valkey-bloom.spdx.json sbom/percona-valkey-bloom.cdx.json \
+	    debian/percona-valkey-bloom/usr/share/percona-valkey-bloom/sbom/
 
 override_dh_fixperms:
 	dh_fixperms
