@@ -83,10 +83,15 @@ CMAKE_EXTRA_ARGS="-DBUILD_UNIT_TESTS=OFF" ./build.sh --jobs=%{?_smp_build_ncpus}
 install -d %{buildroot}%{valkey_modules_dir}
 install -m 0755 .build-release/libsearch.so %{buildroot}%{valkey_modules_dir}/libsearch.so
 
+# Embedded SBOM (SPDX + CycloneDX) of the module source tree (incl. vendored deps).
+install -d %{buildroot}%{_datadir}/%{name}/sbom
+install -m 0644 sbom/%{name}.spdx.json sbom/%{name}.cdx.json %{buildroot}%{_datadir}/%{name}/sbom/
+
 %files
 %license LICENSE
 %doc README.md README.packaging.md
 %{valkey_modules_dir}/libsearch.so
+%{_datadir}/%{name}/
 
 %changelog
 * Wed Jun 25 2026 Percona Build <info@percona.com> - 1.2.0-1

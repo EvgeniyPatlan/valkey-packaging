@@ -30,6 +30,10 @@ override_dh_auto_install:
 	install -d debian/percona-valkey-search/usr/lib/valkey/modules
 	install -m 0755 .build-release/libsearch.so \
 	    debian/percona-valkey-search/usr/lib/valkey/modules/libsearch.so
+	# Embedded SBOM (SPDX + CycloneDX) of the module source tree.
+	install -d debian/percona-valkey-search/usr/share/percona-valkey-search/sbom
+	install -m 0644 sbom/percona-valkey-search.spdx.json sbom/percona-valkey-search.cdx.json \
+	    debian/percona-valkey-search/usr/share/percona-valkey-search/sbom/
 
 override_dh_fixperms:
 	dh_fixperms

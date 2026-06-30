@@ -315,6 +315,20 @@ generate_sbom_files() {
         "$PACKAGE_NAME" "$VERSION" > "$out_cdx"
 }
 
+# embed_module_sbom BASENAME SRCDIR PKGNAME — generate an SBOM of SRCDIR, copy it
+# to the sbom/ output dir, AND embed copies (named after the package) under
+# SRCDIR/sbom/ so they end up in the source tarball. The module's spec/rules then
+# install them at /usr/share/PKGNAME/sbom/, shipping the SBOM inside the package.
+embed_module_sbom() {
+    local base="$1" srcdir="$2" pkg="$3"
+    generate_sbom_files "$srcdir" "${WORKDIR}/${base}.spdx.json" "${WORKDIR}/${base}.cdx.json"
+    copy_artifacts "sbom" "${WORKDIR}/${base}.spdx.json" "${WORKDIR}/${base}.cdx.json"
+    mkdir -p "${srcdir}/sbom"
+    cp "${WORKDIR}/${base}.spdx.json" "${srcdir}/sbom/${pkg}.spdx.json"
+    cp "${WORKDIR}/${base}.cdx.json"  "${srcdir}/sbom/${pkg}.cdx.json"
+    rm -f "${WORKDIR}/${base}.spdx.json" "${WORKDIR}/${base}.cdx.json"
+}
+
 # ---------------------------------------------------------------------------
 # check_workdir
 # ---------------------------------------------------------------------------
@@ -453,11 +467,9 @@ get_json_sources() {
     log_info "Stripping VCS metadata ..."
     find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
-    # SBOM of the module source tree (best-effort; written to the sbom/ output
-    # dir, not into the tarball). Consistent with the server packages.
-    generate_sbom_files "${srcdir}" "${WORKDIR}/json.spdx.json" "${WORKDIR}/json.cdx.json"
-    copy_artifacts "sbom" "${WORKDIR}/json.spdx.json" "${WORKDIR}/json.cdx.json"
-    rm -f "${WORKDIR}/json.spdx.json" "${WORKDIR}/json.cdx.json"
+    # SBOM (SPDX + CycloneDX) of the module source tree, embedded into the tarball
+    # so the package ships it under /usr/share/${JSON_PACKAGE_NAME}/sbom/.
+    embed_module_sbom "json" "${srcdir}" "${JSON_PACKAGE_NAME}"
 
     log_info "Creating ${name}.tar.gz ..."
     tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
@@ -541,10 +553,9 @@ PY
     log_info "Stripping VCS metadata ..."
     find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
-    # SBOM of the module source tree (best-effort; written to the sbom/ output dir).
-    generate_sbom_files "${srcdir}" "${WORKDIR}/bloom.spdx.json" "${WORKDIR}/bloom.cdx.json"
-    copy_artifacts "sbom" "${WORKDIR}/bloom.spdx.json" "${WORKDIR}/bloom.cdx.json"
-    rm -f "${WORKDIR}/bloom.spdx.json" "${WORKDIR}/bloom.cdx.json"
+    # SBOM (SPDX + CycloneDX) of the module source tree, embedded into the tarball
+    # so the package ships it under /usr/share/${BLOOM_PACKAGE_NAME}/sbom/.
+    embed_module_sbom "bloom" "${srcdir}" "${BLOOM_PACKAGE_NAME}"
 
     log_info "Creating ${name}.tar.gz ..."
     tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
@@ -634,10 +645,9 @@ get_search_sources() {
     log_info "Stripping VCS metadata ..."
     find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
-    # SBOM of the module source tree (best-effort; written to the sbom/ output dir).
-    generate_sbom_files "${srcdir}" "${WORKDIR}/search.spdx.json" "${WORKDIR}/search.cdx.json"
-    copy_artifacts "sbom" "${WORKDIR}/search.spdx.json" "${WORKDIR}/search.cdx.json"
-    rm -f "${WORKDIR}/search.spdx.json" "${WORKDIR}/search.cdx.json"
+    # SBOM (SPDX + CycloneDX) of the module source tree, embedded into the tarball
+    # so the package ships it under /usr/share/${SEARCH_PACKAGE_NAME}/sbom/.
+    embed_module_sbom "search" "${srcdir}" "${SEARCH_PACKAGE_NAME}"
 
     log_info "Creating ${name}.tar.gz ..."
     tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
