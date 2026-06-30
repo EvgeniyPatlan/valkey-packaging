@@ -110,6 +110,7 @@ Usage: $0 [OPTIONS]
         --build_search_deb              Build the percona-valkey-search binary DEB
         --search_version=VER            valkey-search version (default: ${DEFAULT_SEARCH_VERSION})
         --search_branch=REF             valkey-search git ref (default: same as --search_version)
+        --bundle_deps                   Install valkey-bundle packaging tools (rpm-build / debhelper)
         --get_bundle_sources            Assemble the percona-valkey-bundle meta-package source tarball
         --build_bundle_src_rpm          Build the percona-valkey-bundle source RPM
         --build_bundle_rpm              Build the percona-valkey-bundle binary RPM (noarch meta)
@@ -169,6 +170,7 @@ parse_arguments() {
             --search_version=*)          SEARCH_VERSION="${arg#*=}" ;;
             --search_branch=*)           SEARCH_BRANCH="${arg#*=}" ;;
             --search_repo=*)             SEARCH_REPO="${arg#*=}" ;;
+            --bundle_deps=*|--bundle_deps) BUNDLE_DEPS=1 ;;
             --get_bundle_sources=*|--get_bundle_sources) BUNDLE_SOURCE=1 ;;
             --build_bundle_src_rpm=*|--build_bundle_src_rpm) BUNDLE_SRPM=1 ;;
             --build_bundle_rpm=*|--build_bundle_rpm) BUNDLE_RPM=1 ;;
@@ -1549,6 +1551,30 @@ build_search_deb() {
 }
 
 # ---------------------------------------------------------------------------
+# install_deps_bundle — packaging tools for the meta-package. There is nothing
+#   to compile; only rpmbuild (RPM) or debhelper/dpkg-dev (DEB) are needed.
+# ---------------------------------------------------------------------------
+install_deps_bundle() {
+    if [[ "$BUNDLE_DEPS" -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        die "Cannot install dependencies — please run as root"
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        local pkg_mgr="yum"
+        command -v dnf &>/dev/null && pkg_mgr="dnf"
+        $pkg_mgr -y install rpm-build rpmdevtools
+    else
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get -y install debhelper devscripts dpkg-dev dh-exec fakeroot
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # get_bundle_sources — assemble the percona-valkey-bundle meta-package source.
 #   There is no upstream code to clone/compile; the tarball just carries the
 #   README + LICENSE so rpmbuild/dpkg have something to package the metadata on.
@@ -1772,6 +1798,7 @@ SEARCH_DEB=0
 SEARCH_REPO="$DEFAULT_SEARCH_REPO"
 SEARCH_VERSION="$DEFAULT_SEARCH_VERSION"
 SEARCH_BRANCH=""
+BUNDLE_DEPS=0
 BUNDLE_SOURCE=0
 BUNDLE_SRPM=0
 BUNDLE_RPM=0
@@ -1799,6 +1826,7 @@ install_deps
 install_deps_json
 install_deps_bloom
 install_deps_search
+install_deps_bundle
 get_sources
 get_json_sources
 get_bloom_sources
