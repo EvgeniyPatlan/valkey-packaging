@@ -1,0 +1,5 @@
+percona-valkey-bundle (9.1.0-1) unstable; urgency=medium
+
+  * Initial percona-valkey-bundle meta-package (server + json/bloom/search/ldap).
+
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Sun, 29 Jun 2026 00:00:00 +0000

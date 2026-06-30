@@ -198,6 +198,50 @@ shows `name=search`; try `FT.CREATE` / `FT._LIST` / `FT.SEARCH`).
 > Debian bookworm. `percona-valkey-json`, `percona-valkey-bloom`, and the server
 > still build on bullseye.
 
+### percona-valkey-bundle (meta-package — server + all modules)
+
+`percona-valkey-bundle` is a **dependency-only meta-package** that installs the
+Percona Valkey server together with every module (`json`, `bloom`, `search`,
+`ldap`) in one step. It ships no files of its own — installing it pulls in the
+whole stack. It has no upstream source to compile, so there are no `*_deps` /
+`get_*_sources` clone steps; the build just assembles a tiny source tarball
+(README + LICENSE) and packages the metadata.
+
+```bash
+# RPM (noarch meta-package)
+scripts/valkey_builder.sh \
+  --builddir=/tmp/BUILD \
+  --get_bundle_sources \
+  --build_bundle_src_rpm --build_bundle_rpm
+
+# DEB (arch:all meta-package)
+scripts/valkey_builder.sh \
+  --builddir=/tmp/BUILD \
+  --get_bundle_sources \
+  --build_bundle_src_deb --build_bundle_deb
+```
+
+The resulting `percona-valkey-bundle` package depends on `percona-valkey`
+(`percona-valkey-server` on DEB) plus `percona-valkey-json`,
+`percona-valkey-bloom`, `percona-valkey-search`, and `percona-valkey-ldap`.
+Versions track the curated set from `valkey-io/valkey-bundle` `versions.json`
+(9.1: server 9.1.0, json 1.0.2, bloom 1.0.1, search 1.2.0, ldap 1.1.0). The
+modules are still **not loaded automatically** — enable the ones you want with
+`loadmodule` / `MODULE LOAD`.
+
+> `percona-valkey-ldap` is built from its own repository
+> (`EvgeniyPatlan/valkey-ldap`, `percona-packaging` branch); the bundle only
+> declares the dependency.
+
+A Percona-branded **bundle Docker image** is also provided
+(`docker/Dockerfile.bundle` + `docker/bundle-docker-entrypoint.sh`): it installs
+`percona-valkey-bundle` from the Percona repo, and its entrypoint
+auto-discovers and `--loadmodule`s every module in the Valkey module directory.
+
+```bash
+docker build -f docker/Dockerfile.bundle -t percona-valkey-bundle:9.1.0 docker/
+```
+
 ### Builder flags reference
 
 | Flag | Description |
@@ -240,6 +284,12 @@ shows `name=search`; try `FT.CREATE` / `FT._LIST` / `FT.SEARCH`).
 | `--search_version=VER` | valkey-search version (default: `1.2.0`) |
 | `--search_branch=REF` | valkey-search git ref (default: same as `--search_version`) |
 | `--search_repo=URL` | valkey-search source repo (default: `https://github.com/valkey-io/valkey-search.git`) |
+| `--get_bundle_sources` | Assemble the percona-valkey-bundle meta-package source tarball |
+| `--build_bundle_src_rpm` | Build the percona-valkey-bundle source RPM |
+| `--build_bundle_rpm` | Build the percona-valkey-bundle binary RPM (noarch meta) |
+| `--build_bundle_src_deb` | Build the percona-valkey-bundle source DEB |
+| `--build_bundle_deb` | Build the percona-valkey-bundle binary DEB (arch:all meta) |
+| `--bundle_version=VER` | valkey-bundle version (default: `9.1.0`) |
 
 ## Testing packages
 
