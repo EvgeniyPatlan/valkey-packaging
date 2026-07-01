@@ -44,3 +44,8 @@ override_dh_fixperms:
 
 # The module build runs no tests during packaging.
 override_dh_auto_test:
+
+# Build the .deb with xz (not the zstd default on Ubuntu jammy+/Debian bookworm+):
+# the Percona repo's reprepro can't read zstd-compressed control.tar/data.tar.
+override_dh_builddeb:
+	dh_builddeb -- -Zxz
