@@ -16,7 +16,7 @@ Depends:
  percona-valkey-json (>= 1.0.2),
  percona-valkey-bloom (>= 1.0.1),
  percona-valkey-search (>= 1.2.0),
- percona-valkey-ldap (>= 1.1.0),
+ percona-valkey-ldap (>= 1.1.1),
 Description: Percona Valkey server bundled with all supported modules
  percona-valkey-bundle is a meta-package that installs the Percona Valkey
  server together with all supported modules in one step:

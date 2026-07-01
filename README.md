@@ -225,7 +225,7 @@ The resulting `percona-valkey-bundle` package depends on `percona-valkey`
 (`percona-valkey-server` on DEB) plus `percona-valkey-json`,
 `percona-valkey-bloom`, `percona-valkey-search`, and `percona-valkey-ldap`.
 Versions track the curated set from `valkey-io/valkey-bundle` `versions.json`
-(9.1: server 9.1.0, json 1.0.2, bloom 1.0.1, search 1.2.0, ldap 1.1.0). The
+(9.1: server 9.1.0, json 1.0.2, bloom 1.0.1, search 1.2.0, ldap 1.1.1). The
 modules are still **not loaded automatically** — enable the ones you want with
 `loadmodule` / `MODULE LOAD`.
 
