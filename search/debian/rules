@@ -30,10 +30,15 @@ override_dh_auto_install:
 	install -d debian/percona-valkey-search/usr/lib/valkey/modules
 	install -m 0755 .build-release/libsearch.so \
 	    debian/percona-valkey-search/usr/lib/valkey/modules/libsearch.so
-	# Embedded SBOM (SPDX + CycloneDX) of the module source tree.
+	# Embedded SBOM: scan the built tree with Syft AFTER build.sh, so the
+	# statically-linked .build-release/.deps (gRPC, Protobuf, Abseil, ICU) are
+	# cataloged. Syft is on PATH via valkey_builder.sh --search_deps; fail loudly.
+	command -v syft >/dev/null 2>&1 || { echo "ERROR: syft not found for SBOM generation" >&2; exit 1; }
 	install -d debian/percona-valkey-search/usr/share/percona-valkey-search/sbom
-	install -m 0644 sbom/percona-valkey-search.spdx.json sbom/percona-valkey-search.cdx.json \
-	    debian/percona-valkey-search/usr/share/percona-valkey-search/sbom/
+	syft scan dir:. --source-name percona-valkey-search --source-version $$(dpkg-parsechangelog -S Version 2>/dev/null || echo 0) \
+	    --exclude './debian' --exclude './rpm' \
+	    -o spdx-json=debian/percona-valkey-search/usr/share/percona-valkey-search/sbom/percona-valkey-search.spdx.json \
+	    -o cyclonedx-json=debian/percona-valkey-search/usr/share/percona-valkey-search/sbom/percona-valkey-search.cdx.json
 
 override_dh_fixperms:
 	dh_fixperms

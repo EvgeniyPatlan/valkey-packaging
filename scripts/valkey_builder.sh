@@ -285,6 +285,21 @@ install_syft() {
     fi
 }
 
+# ensure_syft_system — install Syft into /usr/local/bin so it is on PATH for the
+# module spec/rules, which generate the package's SBOM from the *built* tree at
+# package-build time. Called from install_deps_* (root, same container as the
+# build). Idempotent; tries curl then wget.
+ensure_syft_system() {
+    command -v syft &>/dev/null && return 0
+    log_info "Installing Syft (system-wide) for in-package SBOM generation..."
+    if command -v curl &>/dev/null; then
+        curl -sSfL https://get.anchore.io/syft | sh -s -- -b /usr/local/bin >/dev/null 2>&1 || true
+    elif command -v wget &>/dev/null; then
+        wget -qO- https://get.anchore.io/syft | sh -s -- -b /usr/local/bin >/dev/null 2>&1 || true
+    fi
+    command -v syft &>/dev/null || log_warn "Syft not installed; the package SBOM step will fail loudly at build time"
+}
+
 # generate_sbom_files SCAN_DIR OUT_SPDX OUT_CDX
 #   Generate SPDX-JSON and CycloneDX-JSON SBOMs for SCAN_DIR, excluding the
 #   packaging and VCS directories so the inventory reflects upstream Valkey
@@ -315,20 +330,6 @@ generate_sbom_files() {
         "$PACKAGE_NAME" "$VERSION" > "$out_spdx"
     printf '{"bomFormat":"CycloneDX","specVersion":"1.5","metadata":{"component":{"name":"%s","version":"%s","type":"application"}},"components":[]}\n' \
         "$PACKAGE_NAME" "$VERSION" > "$out_cdx"
-}
-
-# embed_module_sbom BASENAME SRCDIR PKGNAME — generate an SBOM of SRCDIR, copy it
-# to the sbom/ output dir, AND embed copies (named after the package) under
-# SRCDIR/sbom/ so they end up in the source tarball. The module's spec/rules then
-# install them at /usr/share/PKGNAME/sbom/, shipping the SBOM inside the package.
-embed_module_sbom() {
-    local base="$1" srcdir="$2" pkg="$3"
-    generate_sbom_files "$srcdir" "${WORKDIR}/${base}.spdx.json" "${WORKDIR}/${base}.cdx.json"
-    copy_artifacts "sbom" "${WORKDIR}/${base}.spdx.json" "${WORKDIR}/${base}.cdx.json"
-    mkdir -p "${srcdir}/sbom"
-    cp "${WORKDIR}/${base}.spdx.json" "${srcdir}/sbom/${pkg}.spdx.json"
-    cp "${WORKDIR}/${base}.cdx.json"  "${srcdir}/sbom/${pkg}.cdx.json"
-    rm -f "${WORKDIR}/${base}.spdx.json" "${WORKDIR}/${base}.cdx.json"
 }
 
 # ---------------------------------------------------------------------------
@@ -469,9 +470,10 @@ get_json_sources() {
     log_info "Stripping VCS metadata ..."
     find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
-    # SBOM (SPDX + CycloneDX) of the module source tree, embedded into the tarball
-    # so the package ships it under /usr/share/${JSON_PACKAGE_NAME}/sbom/.
-    embed_module_sbom "json" "${srcdir}" "${JSON_PACKAGE_NAME}"
+    # NOTE: the package SBOM is generated at PACKAGE-BUILD time by the module
+    # spec (%install) / debian rules, so it reflects the actually-built tree
+    # (incl. build-time deps like gRPC/ICU for search, vendored crates for
+    # bloom). It is not produced here from the source tree.
 
     log_info "Creating ${name}.tar.gz ..."
     tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
@@ -555,9 +557,10 @@ PY
     log_info "Stripping VCS metadata ..."
     find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
-    # SBOM (SPDX + CycloneDX) of the module source tree, embedded into the tarball
-    # so the package ships it under /usr/share/${BLOOM_PACKAGE_NAME}/sbom/.
-    embed_module_sbom "bloom" "${srcdir}" "${BLOOM_PACKAGE_NAME}"
+    # NOTE: the package SBOM is generated at PACKAGE-BUILD time by the module
+    # spec (%install) / debian rules, so it reflects the actually-built tree
+    # (incl. build-time deps like gRPC/ICU for search, vendored crates for
+    # bloom). It is not produced here from the source tree.
 
     log_info "Creating ${name}.tar.gz ..."
     tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
@@ -647,9 +650,10 @@ get_search_sources() {
     log_info "Stripping VCS metadata ..."
     find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
-    # SBOM (SPDX + CycloneDX) of the module source tree, embedded into the tarball
-    # so the package ships it under /usr/share/${SEARCH_PACKAGE_NAME}/sbom/.
-    embed_module_sbom "search" "${srcdir}" "${SEARCH_PACKAGE_NAME}"
+    # NOTE: the package SBOM is generated at PACKAGE-BUILD time by the module
+    # spec (%install) / debian rules, so it reflects the actually-built tree
+    # (incl. build-time deps like gRPC/ICU for search, vendored crates for
+    # bloom). It is not produced here from the source tree.
 
     log_info "Creating ${name}.tar.gz ..."
     tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
@@ -882,6 +886,7 @@ install_deps_json() {
             cmake g++ make git \
             percona-valkey-dev
     fi
+    ensure_syft_system
 }
 
 # ---------------------------------------------------------------------------
@@ -936,6 +941,7 @@ install_deps_bloom() {
     ln -sf /usr/local/cargo/bin/rustup /usr/local/bin/rustup
     RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo cargo --version \
         || die "cargo not available after rustup install"
+    ensure_syft_system
 }
 
 # ---------------------------------------------------------------------------
@@ -985,6 +991,7 @@ install_deps_search() {
         # Prefer g++-12 where the default is older (e.g. Ubuntu jammy); best-effort.
         apt-get -y install g++-12 gcc-12 || true
     fi
+    ensure_syft_system
 }
 
 # ---------------------------------------------------------------------------

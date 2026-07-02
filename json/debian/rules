@@ -31,10 +31,14 @@ override_dh_auto_install:
 	install -d debian/percona-valkey-json/usr/lib/valkey/modules
 	install -m 0755 obj-build/src/libjson.so \
 	    debian/percona-valkey-json/usr/lib/valkey/modules/libjson.so
-	# Embedded SBOM (SPDX + CycloneDX) of the module source tree.
+	# Embedded SBOM: scan the built tree with Syft (SPDX + CycloneDX). Syft is put
+	# on PATH by valkey_builder.sh --json_deps; fail loudly rather than ship none.
+	command -v syft >/dev/null 2>&1 || { echo "ERROR: syft not found for SBOM generation" >&2; exit 1; }
 	install -d debian/percona-valkey-json/usr/share/percona-valkey-json/sbom
-	install -m 0644 sbom/percona-valkey-json.spdx.json sbom/percona-valkey-json.cdx.json \
-	    debian/percona-valkey-json/usr/share/percona-valkey-json/sbom/
+	syft scan dir:. --source-name percona-valkey-json --source-version $$(dpkg-parsechangelog -S Version 2>/dev/null || echo 0) \
+	    --exclude './debian' --exclude './rpm' \
+	    -o spdx-json=debian/percona-valkey-json/usr/share/percona-valkey-json/sbom/percona-valkey-json.spdx.json \
+	    -o cyclonedx-json=debian/percona-valkey-json/usr/share/percona-valkey-json/sbom/percona-valkey-json.cdx.json
 
 override_dh_fixperms:
 	dh_fixperms

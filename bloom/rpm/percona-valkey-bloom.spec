@@ -51,9 +51,15 @@ cargo build --release --offline
 install -d %{buildroot}%{valkey_modules_dir}
 install -m 0755 target/release/libvalkey_bloom.so %{buildroot}%{valkey_modules_dir}/libvalkey_bloom.so
 
-# Embedded SBOM (SPDX + CycloneDX) of the module source tree (incl. vendored deps).
+# Embedded SBOM: scan the built tree with Syft (SPDX + CycloneDX). For bloom this
+# catalogs the vendored cargo crates (Cargo.lock + vendor/). Syft is put on PATH
+# by valkey_builder.sh --bloom_deps; fail loudly rather than ship no SBOM.
+command -v syft >/dev/null 2>&1 || { echo "ERROR: syft not found for SBOM generation" >&2; exit 1; }
 install -d %{buildroot}%{_datadir}/%{name}/sbom
-install -m 0644 sbom/%{name}.spdx.json sbom/%{name}.cdx.json %{buildroot}%{_datadir}/%{name}/sbom/
+syft scan dir:. --source-name %{name} --source-version %{version} \
+    --exclude './rpm' --exclude './debian' \
+    -o spdx-json=%{buildroot}%{_datadir}/%{name}/sbom/%{name}.spdx.json \
+    -o cyclonedx-json=%{buildroot}%{_datadir}/%{name}/sbom/%{name}.cdx.json
 
 %files
 %license LICENSE

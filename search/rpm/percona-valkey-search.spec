@@ -83,9 +83,17 @@ CMAKE_EXTRA_ARGS="-DBUILD_UNIT_TESTS=OFF" ./build.sh --jobs=%{?_smp_build_ncpus}
 install -d %{buildroot}%{valkey_modules_dir}
 install -m 0755 .build-release/libsearch.so %{buildroot}%{valkey_modules_dir}/libsearch.so
 
-# Embedded SBOM (SPDX + CycloneDX) of the module source tree (incl. vendored deps).
+# Embedded SBOM: scan the built tree with Syft (SPDX + CycloneDX). Crucially this
+# runs AFTER build.sh, so .build-release/.deps (gRPC, Protobuf, Abseil, ICU,
+# highwayhash) are present and get cataloged — the statically-linked deps that a
+# source-only scan would miss. Syft is put on PATH by valkey_builder.sh
+# --search_deps; fail loudly rather than ship no SBOM.
+command -v syft >/dev/null 2>&1 || { echo "ERROR: syft not found for SBOM generation" >&2; exit 1; }
 install -d %{buildroot}%{_datadir}/%{name}/sbom
-install -m 0644 sbom/%{name}.spdx.json sbom/%{name}.cdx.json %{buildroot}%{_datadir}/%{name}/sbom/
+syft scan dir:. --source-name %{name} --source-version %{version} \
+    --exclude './rpm' --exclude './debian' \
+    -o spdx-json=%{buildroot}%{_datadir}/%{name}/sbom/%{name}.spdx.json \
+    -o cyclonedx-json=%{buildroot}%{_datadir}/%{name}/sbom/%{name}.cdx.json
 
 %files
 %license LICENSE

@@ -62,9 +62,15 @@ cmake --build build -j$(nproc)
 install -d %{buildroot}%{valkey_modules_dir}
 install -m 0755 build/src/libjson.so %{buildroot}%{valkey_modules_dir}/libjson.so
 
-# Embedded SBOM (SPDX + CycloneDX) of the module source tree (incl. vendored deps).
+# Embedded SBOM: scan the built tree with Syft (SPDX + CycloneDX) so the SBOM
+# reflects what is actually built (source + vendored RapidJSON). Syft is put on
+# PATH by valkey_builder.sh --json_deps; fail loudly rather than ship no SBOM.
+command -v syft >/dev/null 2>&1 || { echo "ERROR: syft not found for SBOM generation" >&2; exit 1; }
 install -d %{buildroot}%{_datadir}/%{name}/sbom
-install -m 0644 sbom/%{name}.spdx.json sbom/%{name}.cdx.json %{buildroot}%{_datadir}/%{name}/sbom/
+syft scan dir:. --source-name %{name} --source-version %{version} \
+    --exclude './rpm' --exclude './debian' \
+    -o spdx-json=%{buildroot}%{_datadir}/%{name}/sbom/%{name}.spdx.json \
+    -o cyclonedx-json=%{buildroot}%{_datadir}/%{name}/sbom/%{name}.cdx.json
 
 %files
 %license LICENSE
