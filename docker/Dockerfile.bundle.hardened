@@ -1,0 +1,147 @@
+# Percona Valkey Bundle (Hardened) image: the Percona Valkey server plus every
+# supported module (json, bloom, search, ldap), on a Docker Hardened Image (DHI)
+# distroless runtime. Built by installing the percona-valkey-bundle meta-package
+# in a -dev stage, then copying only the runtime bits (binaries, module .so
+# files, and their shared libraries) into the distroless base.
+#
+# Base: Docker Hardened Image (DHI) Community — debian-base (dhi.io), pinned by
+# digest. Refresh after a base bump with:
+#   docker pull dhi.io/debian-base:<tag>
+#   docker inspect --format '{{index .RepoDigests 0}}' dhi.io/debian-base:<tag>
+ARG BASE_IMAGE=dhi.io/debian-base
+ARG BASE_DEV_TAG=trixie-dev
+ARG BASE_DEV_DIGEST=sha256:e2ab6c4b13bcb50e25d6d9a8b2f36b3ceaa620ffb6fbe4d7fb70cc50c5e77877
+ARG BASE_RUNTIME_TAG=trixie
+ARG BASE_RUNTIME_DIGEST=sha256:e440d0dabdc54675aa9601f0d794c39f549b6178946cfeffd3b5a31da33ec2d3
+
+FROM ${BASE_IMAGE}:${BASE_DEV_TAG}@${BASE_DEV_DIGEST} AS package-install
+
+ARG REPO_CHANNEL=testing
+
+# Install the Valkey bundle (server + all modules) from the Percona repo, then
+# add Syft (build stage only — never copied into the runtime image) for SBOM
+# generation in the next stage.
+RUN set -eux; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
+		ca-certificates \
+		wget \
+		gnupg \
+		gpgv \
+		curl \
+		lsb-release \
+		bsdutils \
+	; \
+	groupadd -r adm 2>/dev/null || true; \
+	groupadd -r valkey 2>/dev/null || groupadd -r -g 998 valkey; \
+	useradd -r -g valkey -G adm -d /var/lib/valkey -s /usr/sbin/nologin valkey; \
+	mkdir -p /var/lib/valkey; \
+	chown valkey:valkey /var/lib/valkey; \
+	wget -q -O /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb; \
+	dpkg -i /tmp/percona-release.deb; \
+	percona-release enable valkey-91 ${REPO_CHANNEL}; \
+	apt-get update; \
+	apt-get upgrade -y; \
+	apt-get install -y --no-install-recommends \
+		percona-valkey-tools \
+		percona-valkey-bundle \
+	; \
+	rm -rf /var/lib/apt/lists/* /tmp/*.deb; \
+	mkdir -p /usr/local/bin; \
+	curl -sSfL https://get.anchore.io/syft | sh -s -- -b /usr/local/bin; \
+	valkey-cli --version; \
+	valkey-server --version; \
+	ls -l /usr/lib/valkey/modules; \
+	syft version
+
+# Assemble the runtime filesystem: valkey binaries, config, the module .so files,
+# and every shared library the binaries AND modules need (collected via ldd).
+# Then generate a real SBOM by scanning the assembled /runtime rootfs (no build
+# tooling such as wget/gnupg/syft is included).
+RUN set -eux; \
+	mkdir -p /runtime/data /runtime/run/valkey /runtime/etc /runtime/usr/local/bin \
+		/runtime/usr/local /runtime/usr/lib/valkey/modules; \
+	\
+	cp /usr/bin/valkey-* /runtime/usr/local/bin/; \
+	cp -a /etc/valkey /runtime/etc/valkey; \
+	\
+	# Module shared objects (preserve the executable bit — Valkey refuses to load
+	# a non-executable module). \
+	cp -a /usr/lib/valkey/modules/*.so /runtime/usr/lib/valkey/modules/; \
+	\
+	# Collect shared libraries for the valkey binaries and every module .so. \
+	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli /usr/lib/valkey/modules/*.so; do \
+		[ -e "$bin" ] || continue; \
+		ldd "$bin" 2>/dev/null | awk '/=>/ {print $3}' | while read -r lib; do \
+			if [ -f "$lib" ]; then \
+				libdir="$(dirname "$lib" | sed 's|^/lib|/usr/lib|')"; \
+				mkdir -p "/runtime${libdir}"; \
+				cp -L "$lib" "/runtime${libdir}/"; \
+			fi; \
+		done; \
+	done; \
+	\
+	VALKEY_UID=$(id -u valkey); \
+	VALKEY_GID=$(getent group valkey | cut -d: -f3); \
+	chown ${VALKEY_UID}:${VALKEY_GID} /runtime/data /runtime/run/valkey /runtime/etc/valkey; \
+	chmod 750 /runtime/data /runtime/run/valkey; \
+	\
+	grep '^valkey:' /etc/passwd > /runtime/etc/passwd.valkey; \
+	grep '^root:' /etc/passwd >> /runtime/etc/passwd.valkey; \
+	grep '^valkey:' /etc/group > /runtime/etc/group.valkey; \
+	grep '^root:' /etc/group >> /runtime/etc/group.valkey; \
+	\
+	vkver="$(valkey-server --version | awk '{print $3}' | cut -d= -f2)"; \
+	syft scan dir:/runtime \
+		--source-name percona-valkey-bundle --source-version "$vkver" \
+		-o spdx-json=/tmp/valkey-bundle.spdx.json \
+		-o cyclonedx-json=/tmp/valkey-bundle.cdx.json; \
+	cp /tmp/valkey-bundle.spdx.json /tmp/valkey-bundle.cdx.json /runtime/usr/local/
+
+COPY bundle-docker-entrypoint.sh /runtime/usr/local/bin/bundle-docker-entrypoint.sh
+RUN chmod 755 /runtime/usr/local/bin/bundle-docker-entrypoint.sh
+
+FROM ${BASE_IMAGE}:${BASE_RUNTIME_TAG}@${BASE_RUNTIME_DIGEST}
+
+ENV VALKEY_VERSION=9.1.0
+
+LABEL org.opencontainers.image.source="https://github.com/valkey-io/valkey-bundle" \
+      org.opencontainers.image.vendor="Percona" \
+      org.opencontainers.image.title="Percona Valkey Bundle (Hardened)" \
+      org.opencontainers.image.description="Hardened Percona Valkey bundle (server + json/bloom/search/ldap modules) built on Docker Hardened Image (DHI)" \
+      org.opencontainers.image.version="9.1.0" \
+      org.opencontainers.image.base.name="dhi.io/debian-base:trixie" \
+      org.opencontainers.image.base.digest="sha256:e440d0dabdc54675aa9601f0d794c39f549b6178946cfeffd3b5a31da33ec2d3"
+
+# Copy passwd/group entries for the valkey user
+COPY --from=package-install /runtime/etc/passwd.valkey /etc/passwd
+COPY --from=package-install /runtime/etc/group.valkey /etc/group
+
+# Copy valkey binaries, config, SBOM, and the module .so files
+COPY --from=package-install /runtime/usr/local/bin/ /usr/local/bin/
+COPY --from=package-install /runtime/usr/local/valkey-bundle.spdx.json /usr/local/
+COPY --from=package-install /runtime/usr/local/valkey-bundle.cdx.json /usr/local/
+COPY --from=package-install /runtime/etc/valkey/ /etc/valkey/
+COPY --from=package-install /runtime/usr/lib/valkey/modules/ /usr/lib/valkey/modules/
+
+# Copy all shared libraries valkey and the modules need (collected via ldd);
+# preserves architecture-specific paths (x86_64-linux-gnu / aarch64-linux-gnu).
+COPY --from=package-install /runtime/usr/lib/ /usr/lib/
+
+# Copy data and run directories with correct ownership
+COPY --chown=valkey:valkey --from=package-install /runtime/data/ /data/
+COPY --chown=valkey:valkey --from=package-install /runtime/run/valkey/ /run/valkey/
+
+WORKDIR /data
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+	CMD valkey-cli ping || exit 1
+
+VOLUME ["/data"]
+
+EXPOSE 6379
+
+USER valkey
+
+ENTRYPOINT ["/usr/local/bin/bundle-docker-entrypoint.sh"]
+CMD ["valkey-server"]

@@ -10,10 +10,21 @@
 #
 set -euo pipefail
 
-IMAGE="${1:?Usage: $0 <image:tag> [hardened|rpm]}"
+IMAGE="${1:?Usage: $0 <image:tag> [hardened|rpm|bundle-rpm|bundle-hardened]}"
 TYPE="${2:-$(echo "$IMAGE" | grep -q hardened && echo hardened || echo rpm)}"
 VALKEY_VERSION="${VALKEY_VERSION:-9.1.0}"
 CNT="valkey-test-$$"
+
+# Bundle images ship the SBOM under a different name and load modules; hardened
+# variants (incl. bundle-hardened) get the DHI base-label check.
+case "$TYPE" in
+    *bundle*)   IS_BUNDLE=1; SBOM_BASE="valkey-bundle" ;;
+    *)          IS_BUNDLE=0; SBOM_BASE="valkey" ;;
+esac
+case "$TYPE" in
+    *hardened*) IS_HARDENED=1 ;;
+    *)          IS_HARDENED=0 ;;
+esac
 
 PASSED=0
 FAILED=0
@@ -126,18 +137,18 @@ check "vendor label is Percona" \
     sh -c "docker inspect '$IMAGE' | grep -q '\"org.opencontainers.image.vendor\": \"Percona\"'"
     
 echo "9. SBOM files (SPDX + CycloneDX):"
-check "SPDX SBOM present (/usr/local/valkey.spdx.json)" \
-    docker run --rm --entrypoint="" "$IMAGE" test -f /usr/local/valkey.spdx.json
-check "CycloneDX SBOM present (/usr/local/valkey.cdx.json)" \
-    docker run --rm --entrypoint="" "$IMAGE" test -f /usr/local/valkey.cdx.json
+check "SPDX SBOM present (/usr/local/${SBOM_BASE}.spdx.json)" \
+    docker run --rm --entrypoint="" "$IMAGE" test -f "/usr/local/${SBOM_BASE}.spdx.json"
+check "CycloneDX SBOM present (/usr/local/${SBOM_BASE}.cdx.json)" \
+    docker run --rm --entrypoint="" "$IMAGE" test -f "/usr/local/${SBOM_BASE}.cdx.json"
 # Read whole file via shell builtins (no cat/grep needed inside the image) and
 # grep on the host. A real Syft SPDX document carries an "spdxVersion" key.
 check "SPDX SBOM is a valid SBOM document" \
-    sh -c "docker run --rm --entrypoint='' '$IMAGE' sh -c 'while IFS= read -r l; do printf \"%s\\n\" \"\$l\"; done </usr/local/valkey.spdx.json' | grep -q 'spdxVersion'"
+    sh -c "docker run --rm --entrypoint='' '$IMAGE' sh -c 'while IFS= read -r l; do printf \"%s\\n\" \"\$l\"; done </usr/local/${SBOM_BASE}.spdx.json' | grep -q 'spdxVersion'"
 check "CycloneDX SBOM is a valid SBOM document" \
-    sh -c "docker run --rm --entrypoint='' '$IMAGE' sh -c 'while IFS= read -r l; do printf \"%s\\n\" \"\$l\"; done </usr/local/valkey.cdx.json' | grep -q 'bomFormat'"
+    sh -c "docker run --rm --entrypoint='' '$IMAGE' sh -c 'while IFS= read -r l; do printf \"%s\\n\" \"\$l\"; done </usr/local/${SBOM_BASE}.cdx.json' | grep -q 'bomFormat'"
 
-if [ "$TYPE" = "hardened" ]; then
+if [ "$IS_HARDENED" = "1" ]; then
     echo "10. Base image label:"
     check "base image label references DHI" \
         sh -c "docker inspect '$IMAGE' | grep -q 'dhi.io'"
@@ -153,6 +164,21 @@ cleanup
 docker run -d --name "$CNT" "$IMAGE" > /dev/null
 echo "Starting container..."
 check "server starts and responds to PING" wait_ready "$CNT"
+
+if [ "$IS_BUNDLE" = "1" ]; then
+    echo "10b. Bundle modules auto-loaded (MODULE LIST):"
+    # The bundle entrypoint auto-loads every module in the module dir. Each must
+    # show up in MODULE LIST under its registered name.
+    for mod in json bf search ldap; do
+        check "module '$mod' is loaded" \
+            sh -c "docker exec '$CNT' valkey-cli MODULE LIST | grep -q '$mod'"
+    done
+    echo "10c. Module commands respond:"
+    check "JSON.SET / JSON.GET round-trip" \
+        docker exec "$CNT" sh -c "valkey-cli JSON.SET bt '\$' '{\"a\":1}' >/dev/null && [ \"\$(valkey-cli JSON.GET bt '\$.a')\" = '[1]' ]"
+    check "BF.ADD / BF.EXISTS round-trip" \
+        docker exec "$CNT" sh -c '[ "$(valkey-cli BF.ADD bfk x)" = "1" ] && [ "$(valkey-cli BF.EXISTS bfk x)" = "1" ]'
+fi
 
 echo "11. SET/GET string:"
 check "SET returns OK" \

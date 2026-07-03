@@ -1,6 +1,8 @@
-.PHONY: build build-hardened build-rpm run stop clean logs test test-hardened test-rpm help all
+.PHONY: build build-hardened build-rpm run stop clean logs test test-hardened test-rpm help all \
+        build-bundle build-bundle-hardened build-bundle-rpm test-bundle test-bundle-hardened test-bundle-rpm
 
 IMAGE_NAME := perconalab/valkey
+BUNDLE_IMAGE_NAME := perconalab/valkey-bundle
 VALKEY_VERSION := 9.1.0
 REPO_CHANNEL ?= experimental
 
@@ -14,9 +16,11 @@ help:
 	@echo "  build          - Build both images (hardened + RPM)"
 	@echo "  build-hardened - Build hardened DHI image (Dockerfile.hardened)"
 	@echo "  build-rpm      - Build RPM/UBI9 image (Dockerfile)"
+	@echo "  build-bundle   - Build both bundle images (server + all modules)"
 	@echo "  test           - Test both images"
 	@echo "  test-hardened  - Test hardened image"
 	@echo "  test-rpm       - Test RPM image"
+	@echo "  test-bundle    - Test both bundle images"
 	@echo "  run            - Start Valkey container with docker-compose"
 	@echo "  stop           - Stop Valkey container"
 	@echo "  logs           - Show container logs"
@@ -44,6 +48,25 @@ test-hardened:
 
 test-rpm:
 	VALKEY_VERSION=$(VALKEY_VERSION) ./test-image.sh $(IMAGE_NAME):$(TAG_RPM) rpm
+
+# --- Bundle images (server + all modules: json/bloom/search/ldap) ---------
+build-bundle: build-bundle-hardened build-bundle-rpm
+
+build-bundle-hardened:
+	@echo "Building hardened Valkey Bundle image (DHI)..."
+	docker build --build-arg REPO_CHANNEL=$(REPO_CHANNEL) -t $(BUNDLE_IMAGE_NAME):$(TAG_HARDENED) -f Dockerfile.bundle.hardened .
+
+build-bundle-rpm:
+	@echo "Building RPM Valkey Bundle image (UBI9)..."
+	docker build --build-arg REPO_CHANNEL=$(REPO_CHANNEL) -t $(BUNDLE_IMAGE_NAME):$(TAG_RPM) -f Dockerfile.bundle .
+
+test-bundle: test-bundle-hardened test-bundle-rpm
+
+test-bundle-hardened:
+	VALKEY_VERSION=$(VALKEY_VERSION) ./test-image.sh $(BUNDLE_IMAGE_NAME):$(TAG_HARDENED) bundle-hardened
+
+test-bundle-rpm:
+	VALKEY_VERSION=$(VALKEY_VERSION) ./test-image.sh $(BUNDLE_IMAGE_NAME):$(TAG_RPM) bundle-rpm
 
 run:
 	@echo "Starting Valkey..."
