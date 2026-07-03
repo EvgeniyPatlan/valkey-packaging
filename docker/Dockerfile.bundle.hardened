@@ -65,9 +65,11 @@ RUN set -eux; \
 	cp /usr/bin/valkey-* /runtime/usr/local/bin/; \
 	cp -a /etc/valkey /runtime/etc/valkey; \
 	\
-	# Module shared objects (preserve the executable bit — Valkey refuses to load
-	# a non-executable module). \
+	# Module shared objects. Valkey refuses to load a non-executable module, so
+	# force 0755 defensively (a module package built on DEB may ship the .so 0644
+	# if its rules omit the override_dh_fixperms exec-bit restore). \
 	cp -a /usr/lib/valkey/modules/*.so /runtime/usr/lib/valkey/modules/; \
+	chmod 0755 /runtime/usr/lib/valkey/modules/*.so; \
 	\
 	# Collect shared libraries for the valkey binaries and every module .so. \
 	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli /usr/lib/valkey/modules/*.so; do \
