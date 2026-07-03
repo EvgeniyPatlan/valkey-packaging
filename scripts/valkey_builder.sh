@@ -466,6 +466,10 @@ get_json_sources() {
     log_info "Adding in-package README ..."
     cp "${BUILDER_SCRIPT_DIR}/../json/README.packaging.md" "${srcdir}/README.packaging.md" \
         || die "json/README.packaging.md is missing"
+    # SBOM generator, invoked by the spec/rules at package-build time.
+    cp "${BUILDER_SCRIPT_DIR}/gen-module-sbom.sh" "${srcdir}/gen-module-sbom.sh" \
+        || die "gen-module-sbom.sh is missing"
+    chmod +x "${srcdir}/gen-module-sbom.sh"
 
     log_info "Stripping VCS metadata ..."
     find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
@@ -553,6 +557,10 @@ PY
     log_info "Adding in-package README ..."
     cp "${BUILDER_SCRIPT_DIR}/../bloom/README.packaging.md" "${srcdir}/README.packaging.md" \
         || die "bloom/README.packaging.md is missing"
+    # SBOM generator, invoked by the spec/rules at package-build time.
+    cp "${BUILDER_SCRIPT_DIR}/gen-module-sbom.sh" "${srcdir}/gen-module-sbom.sh" \
+        || die "gen-module-sbom.sh is missing"
+    chmod +x "${srcdir}/gen-module-sbom.sh"
 
     log_info "Stripping VCS metadata ..."
     find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
@@ -610,6 +618,10 @@ get_search_sources() {
     log_info "Adding in-package README ..."
     cp "${BUILDER_SCRIPT_DIR}/../search/README.packaging.md" "${srcdir}/README.packaging.md" \
         || die "search/README.packaging.md is missing"
+    # SBOM generator, invoked by the spec/rules at package-build time.
+    cp "${BUILDER_SCRIPT_DIR}/gen-module-sbom.sh" "${srcdir}/gen-module-sbom.sh" \
+        || die "gen-module-sbom.sh is missing"
+    chmod +x "${srcdir}/gen-module-sbom.sh"
 
     # Build-time source tweaks (done here so RPM and DEB build identically):
     #  1) Disable LTO. The release build links the module with -flto and compiles

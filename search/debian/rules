@@ -30,15 +30,13 @@ override_dh_auto_install:
 	install -d debian/percona-valkey-search/usr/lib/valkey/modules
 	install -m 0755 .build-release/libsearch.so \
 	    debian/percona-valkey-search/usr/lib/valkey/modules/libsearch.so
-	# Embedded SBOM: scan the built tree with Syft AFTER build.sh, so the
-	# statically-linked .build-release/.deps (gRPC, Protobuf, Abseil, ICU) are
-	# cataloged. Syft is on PATH via valkey_builder.sh --search_deps; fail loudly.
-	command -v syft >/dev/null 2>&1 || { echo "ERROR: syft not found for SBOM generation" >&2; exit 1; }
-	install -d debian/percona-valkey-search/usr/share/percona-valkey-search/sbom
-	syft scan dir:. --source-name percona-valkey-search --source-version $$(dpkg-parsechangelog -S Version 2>/dev/null || echo 0) \
-	    --exclude './debian' --exclude './rpm' \
-	    -o spdx-json=debian/percona-valkey-search/usr/share/percona-valkey-search/sbom/percona-valkey-search.spdx.json \
-	    -o cyclonedx-json=debian/percona-valkey-search/usr/share/percona-valkey-search/sbom/percona-valkey-search.cdx.json
+	# Embedded SBOM set (SPDX/CycloneDX json+xml, Syft table, license manifest),
+	# generated from the built tree by the shipped gen-module-sbom.sh. Runs AFTER
+	# build.sh, so the statically-linked .build-release/.deps (gRPC, Protobuf,
+	# Abseil, ICU) are cataloged; fails loudly if Syft is missing (installed by
+	# valkey_builder.sh --search_deps).
+	sh gen-module-sbom.sh percona-valkey-search $$(dpkg-parsechangelog -S Version 2>/dev/null || echo 0) \
+	    debian/percona-valkey-search/usr/share/percona-valkey-search/sbom .
 
 override_dh_fixperms:
 	dh_fixperms
