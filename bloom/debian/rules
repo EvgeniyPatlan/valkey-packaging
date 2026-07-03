@@ -21,14 +21,12 @@ override_dh_auto_install:
 	install -d debian/percona-valkey-bloom/usr/lib/valkey/modules
 	install -m 0755 target/release/libvalkey_bloom.so \
 	    debian/percona-valkey-bloom/usr/lib/valkey/modules/libvalkey_bloom.so
-	# Embedded SBOM: scan the built tree with Syft (catalogs vendored cargo crates).
-	# Syft is put on PATH by valkey_builder.sh --bloom_deps; fail loudly otherwise.
-	command -v syft >/dev/null 2>&1 || { echo "ERROR: syft not found for SBOM generation" >&2; exit 1; }
-	install -d debian/percona-valkey-bloom/usr/share/percona-valkey-bloom/sbom
-	syft scan dir:. --source-name percona-valkey-bloom --source-version $$(dpkg-parsechangelog -S Version 2>/dev/null || echo 0) \
-	    --exclude './debian' --exclude './rpm' \
-	    -o spdx-json=debian/percona-valkey-bloom/usr/share/percona-valkey-bloom/sbom/percona-valkey-bloom.spdx.json \
-	    -o cyclonedx-json=debian/percona-valkey-bloom/usr/share/percona-valkey-bloom/sbom/percona-valkey-bloom.cdx.json
+	# Embedded SBOM set (SPDX/CycloneDX json+xml, Syft table, license manifest),
+	# generated from the built tree by the shipped gen-module-sbom.sh (catalogs the
+	# vendored cargo crates; fails loudly if Syft is missing, installed by
+	# valkey_builder.sh --bloom_deps).
+	sh gen-module-sbom.sh percona-valkey-bloom $$(dpkg-parsechangelog -S Version 2>/dev/null || echo 0) \
+	    debian/percona-valkey-bloom/usr/share/percona-valkey-bloom/sbom .
 
 override_dh_fixperms:
 	dh_fixperms
