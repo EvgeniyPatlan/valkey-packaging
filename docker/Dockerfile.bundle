@@ -51,7 +51,10 @@ RUN set -ex; \
         shadow-utils \
         percona-valkey-bundle; \
     microdnf clean all; \
-    rm -rf /var/cache/dnf /var/cache/yum
+    rm -rf /var/cache/dnf /var/cache/yum; \
+    # Valkey refuses to load a non-executable module; force 0755 defensively in
+    # case a module package ships the .so without the exec bit.
+    chmod 0755 /usr/lib64/valkey/modules/*.so 2>/dev/null || true
 
 # Generate an SBOM (SPDX + CycloneDX) of the installed image, then remove the
 # generator so it is not shipped.
