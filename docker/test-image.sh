@@ -178,6 +178,16 @@ if [ "$IS_BUNDLE" = "1" ]; then
         docker exec "$CNT" sh -c "valkey-cli JSON.SET bt '\$' '{\"a\":1}' >/dev/null && [ \"\$(valkey-cli JSON.GET bt '\$.a')\" = '[1]' ]"
     check "BF.ADD / BF.EXISTS round-trip" \
         docker exec "$CNT" sh -c '[ "$(valkey-cli BF.ADD bfk x)" = "1" ] && [ "$(valkey-cli BF.EXISTS bfk x)" = "1" ]'
+    # search: create a vector index, confirm it shows up, then drop it.
+    check "FT.CREATE creates an index" \
+        docker exec "$CNT" valkey-cli FT.CREATE bt_idx ON HASH PREFIX 1 doc: \
+            SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 3 DISTANCE_METRIC L2
+    check "FT._LIST shows the new index" \
+        docker exec "$CNT" sh -c "valkey-cli FT._LIST | grep -q bt_idx"
+    check "FT.INFO returns index details" \
+        docker exec "$CNT" sh -c "valkey-cli FT.INFO bt_idx | grep -q bt_idx"
+    check "FT.DROPINDEX removes the index" \
+        docker exec "$CNT" sh -c "valkey-cli FT.DROPINDEX bt_idx >/dev/null && ! valkey-cli FT._LIST | grep -q bt_idx"
 fi
 
 echo "11. SET/GET string:"
