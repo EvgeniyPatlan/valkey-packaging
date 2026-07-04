@@ -182,12 +182,14 @@ if [ "$IS_BUNDLE" = "1" ]; then
     check "FT.CREATE creates an index" \
         docker exec "$CNT" valkey-cli FT.CREATE bt_idx ON HASH PREFIX 1 doc: \
             SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 3 DISTANCE_METRIC L2
+    # NOTE: grep runs on the HOST (hardened/distroless images have no grep) — only
+    # valkey-cli runs inside the container via docker exec, its output piped out.
     check "FT._LIST shows the new index" \
-        docker exec "$CNT" sh -c "valkey-cli FT._LIST | grep -q bt_idx"
+        sh -c "docker exec '$CNT' valkey-cli FT._LIST | grep -q bt_idx"
     check "FT.INFO returns index details" \
-        docker exec "$CNT" sh -c "valkey-cli FT.INFO bt_idx | grep -q bt_idx"
+        sh -c "docker exec '$CNT' valkey-cli FT.INFO bt_idx | grep -q bt_idx"
     check "FT.DROPINDEX removes the index" \
-        docker exec "$CNT" sh -c "valkey-cli FT.DROPINDEX bt_idx >/dev/null && ! valkey-cli FT._LIST | grep -q bt_idx"
+        sh -c "docker exec '$CNT' valkey-cli FT.DROPINDEX bt_idx >/dev/null && ! docker exec '$CNT' valkey-cli FT._LIST | grep -q bt_idx"
 fi
 
 echo "11. SET/GET string:"
