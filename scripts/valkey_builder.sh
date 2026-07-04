@@ -659,6 +659,22 @@ get_search_sources() {
     # Belt-and-suspenders: also flip build.sh's hard-coded -DBUILD_UNIT_TESTS=ON.
     [[ -f "${srcdir}/build.sh" ]] && sed -i 's/-DBUILD_UNIT_TESTS=ON/-DBUILD_UNIT_TESTS=OFF/g' "${srcdir}/build.sh"
 
+    # Harden CPU-core detection. vmsdk::GetPhysicalCPUCoresCount() aborts the
+    # module (and thus the whole server) at load time when /proc/cpuinfo lacks
+    # "physical id"/"cpu cores" lines (common in containers/VMs/cloud) — ParseCPUInfo
+    # then returns 0, and std::stoi can also throw on odd input. Neither is guarded.
+    # Wrap the parse in try/catch, ignore a 0 result, and floor the final value to
+    # a sane non-zero count so the module loads everywhere.
+    local conc="${srcdir}/vmsdk/src/concurrency.cc"
+    if [[ -f "$conc" ]]; then
+        sed -i \
+            -e 's|cpu_cores = helper::ParseCPUInfo(cpuinfo);|try { size_t _c = helper::ParseCPUInfo(cpuinfo); if (_c > 0) cpu_cores = _c; } catch (...) {}|' \
+            -e 's|\(\s*\)VMSDK_LOG(DEBUG, nullptr) << "Cores count is set to:" << cpu_cores;|\1if (cpu_cores == 0) cpu_cores = std::thread::hardware_concurrency();\n\1if (cpu_cores == 0) cpu_cores = 1;\n\1VMSDK_LOG(DEBUG, nullptr) << "Cores count is set to:" << cpu_cores;|' \
+            "$conc"
+    else
+        log_warn "vmsdk/src/concurrency.cc not found — CPU-core hardening not applied (upstream layout changed?)"
+    fi
+
     log_info "Stripping VCS metadata ..."
     find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
