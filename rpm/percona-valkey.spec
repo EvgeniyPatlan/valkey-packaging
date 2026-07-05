@@ -344,16 +344,11 @@ install -dm0755 %{buildroot}%{valkey_modules_dir}
 install -Dm0644 src/%{valkey_name}module.h %{buildroot}%{_includedir}/%{valkey_name}module.h
 install -Dm0644 %{SOURCE9} %{buildroot}%{_rpmmacrodir}/macros.%{valkey_name}
 
-# Embed the pre-generated SBOM (SPDX + CycloneDX). The build pipeline writes
-# these into the source tree's rpm/ dir; install best-effort so a build from an
-# older source tarball without the files still succeeds. The file-list entry
-# lists the directory, so the package is valid whether or not the files exist.
-install -dm0755 %{buildroot}%{_datadir}/%{name}/sbom
-for f in valkey.spdx.json valkey.cdx.json; do
-    if [ -f rpm/$f ]; then
-        install -m0644 rpm/$f %{buildroot}%{_datadir}/%{name}/sbom/$f
-    fi
-done
+# Embedded SBOM set (SPDX/CycloneDX json+xml, Syft table, license manifest),
+# generated from the built tree by the shipped gen-module-sbom.sh — the same
+# 6-file set as every module. Syft is on PATH via valkey_builder.sh install_deps;
+# the script fails loudly if it is missing. %files ships %{_datadir}/%{name}/.
+sh gen-module-sbom.sh %{name} %{version}-%{release} %{buildroot}%{_datadir}/%{name}/sbom .
 
 install -Dm0640 valkey.conf %{buildroot}%{_conf_dir}/includes/valkey.defaults.conf
 install -Dm0640 sentinel.conf %{buildroot}%{_conf_dir}/includes/sentinel.defaults.conf
