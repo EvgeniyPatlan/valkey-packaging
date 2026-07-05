@@ -190,6 +190,14 @@ if [ "$IS_BUNDLE" = "1" ]; then
         sh -c "docker exec '$CNT' valkey-cli FT.INFO bt_idx | grep -q bt_idx"
     check "FT.DROPINDEX removes the index" \
         sh -c "docker exec '$CNT' valkey-cli FT.DROPINDEX bt_idx >/dev/null && ! docker exec '$CNT' valkey-cli FT._LIST | grep -q bt_idx"
+
+    echo "10d. Per-package SBOMs shipped (server + modules):"
+    # Each module package embeds a Syft SBOM at /usr/share/<pkg>/sbom/. Use the
+    # shell builtin 'test' (distroless has no ls/find) via docker exec.
+    for pkg in percona-valkey-json percona-valkey-bloom percona-valkey-search percona-valkey-ldap; do
+        check "SBOM for $pkg present" \
+            docker exec "$CNT" sh -c "test -f /usr/share/$pkg/sbom/$pkg.spdx.json"
+    done
 fi
 
 echo "11. SET/GET string:"

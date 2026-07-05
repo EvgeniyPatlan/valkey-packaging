@@ -71,6 +71,18 @@ RUN set -eux; \
 	cp -a /usr/lib/valkey/modules/*.so /runtime/usr/lib/valkey/modules/; \
 	chmod 0755 /runtime/usr/lib/valkey/modules/*.so; \
 	\
+	# Per-package SBOMs: the server and each module ship a Syft SBOM set under \
+	# /usr/share/percona-valkey*/sbom/. Carry them into the distroless image so \
+	# every component stays independently auditable (the UBI9 image gets them for \
+	# free from the package install; here we copy them by hand). \
+	mkdir -p /runtime/usr/share; \
+	for d in /usr/share/percona-valkey*/; do \
+		if [ -d "${d}sbom" ]; then \
+			mkdir -p "/runtime${d}"; \
+			cp -a "${d}sbom" "/runtime${d}"; \
+		fi; \
+	done; \
+	\
 	# Collect shared libraries for the valkey binaries and every module .so. \
 	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli /usr/lib/valkey/modules/*.so; do \
 		[ -e "$bin" ] || continue; \
@@ -125,6 +137,8 @@ COPY --from=package-install /runtime/usr/local/valkey-bundle.spdx.json /usr/loca
 COPY --from=package-install /runtime/usr/local/valkey-bundle.cdx.json /usr/local/
 COPY --from=package-install /runtime/etc/valkey/ /etc/valkey/
 COPY --from=package-install /runtime/usr/lib/valkey/modules/ /usr/lib/valkey/modules/
+# Per-package SBOMs (server + json/bloom/search/ldap), same paths as the UBI9 image.
+COPY --from=package-install /runtime/usr/share/ /usr/share/
 
 # Copy all shared libraries valkey and the modules need (collected via ldd);
 # preserves architecture-specific paths (x86_64-linux-gnu / aarch64-linux-gnu).
