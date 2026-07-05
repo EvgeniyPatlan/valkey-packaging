@@ -416,12 +416,13 @@ EOF
         cp -r "${BUILDER_SCRIPT_DIR}/../rpm" ./
     fi
 
-    # Generate a real SBOM (SPDX + CycloneDX) of the upstream source tree and
-    # bake it into the source tree (debian/ and rpm/) so it travels in the
-    # tarball / source package and is embedded into the built RPM/DEB packages.
-    generate_sbom_files "." "./debian/valkey.spdx.json" "./debian/valkey.cdx.json"
-    cp -f ./debian/valkey.spdx.json ./debian/valkey.cdx.json ./rpm/
-    copy_artifacts "sbom" ./debian/valkey.spdx.json ./debian/valkey.cdx.json
+    # Ship the SBOM generator in the tarball; the spec (%install) / debian rules
+    # invoke it at package-build time to embed the full SBOM set (SPDX/CycloneDX
+    # json+xml, Syft table, license manifest) under /usr/share/percona-valkey/sbom/
+    # — the same 6-file set as every module (see gen-module-sbom.sh).
+    cp "${BUILDER_SCRIPT_DIR}/gen-module-sbom.sh" "./gen-module-sbom.sh" \
+        || die "gen-module-sbom.sh is missing"
+    chmod +x "./gen-module-sbom.sh"
 
     cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
 
@@ -830,6 +831,7 @@ install_deps_rpm() {
 
         $pkg_mgr clean all
     fi
+    ensure_syft_system
 }
 
 install_deps_deb() {
@@ -875,6 +877,7 @@ install_deps_deb() {
             --tool="apt-get -o Debug::pkgProblemResolver=yes --no-install-recommends --yes" \
             debian/control || log_warn "mk-build-deps reported issues (non-critical)"
     fi
+    ensure_syft_system
 }
 
 # ---------------------------------------------------------------------------
