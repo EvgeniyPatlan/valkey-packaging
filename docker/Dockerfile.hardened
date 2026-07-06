@@ -41,6 +41,7 @@ RUN set -eux; \
 	apt-get install -y --no-install-recommends \
 		percona-valkey-server \
 		percona-valkey-tools \
+		gawk \
 	; \
 	rm -rf /var/lib/apt/lists/* /tmp/*.deb; \
 	mkdir -p /usr/local/bin; \
@@ -59,7 +60,10 @@ RUN set -eux; \
 	cp /usr/bin/valkey-* /runtime/usr/local/bin/; \
 	cp -a /etc/valkey /runtime/etc/valkey; \
 	\
-	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli; do \
+	# awk for in-container scripting (the distroless base ships no text tools). \
+	cp "$(command -v gawk)" /runtime/usr/local/bin/awk; \
+	\
+	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli "$(command -v gawk)"; do \
 		ldd "$bin" | awk '/=>/ {print $3}' | while read -r lib; do \
 			if [ -f "$lib" ]; then \
 				libdir="$(dirname "$lib" | sed 's|^/lib|/usr/lib|')"; \
