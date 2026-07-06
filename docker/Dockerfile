@@ -43,6 +43,7 @@ RUN set -ex; \
     percona-release enable valkey-91 ${REPO_CHANNEL}; \
     microdnf -y install \
         tar \
+        gawk \
         procps-ng \
         shadow-utils \
         percona-valkey; \

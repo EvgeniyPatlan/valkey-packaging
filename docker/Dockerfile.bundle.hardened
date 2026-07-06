@@ -45,6 +45,7 @@ RUN set -eux; \
 	apt-get install -y --no-install-recommends \
 		percona-valkey-tools \
 		percona-valkey-bundle \
+		gawk \
 	; \
 	rm -rf /var/lib/apt/lists/* /tmp/*.deb; \
 	mkdir -p /usr/local/bin; \
@@ -65,6 +66,9 @@ RUN set -eux; \
 	cp /usr/bin/valkey-* /runtime/usr/local/bin/; \
 	cp -a /etc/valkey /runtime/etc/valkey; \
 	\
+	# awk for in-container scripting (the distroless base ships no text tools). \
+	cp "$(command -v gawk)" /runtime/usr/local/bin/awk; \
+	\
 	# Module shared objects. Valkey refuses to load a non-executable module, so
 	# force 0755 defensively (a module package built on DEB may ship the .so 0644
 	# if its rules omit the override_dh_fixperms exec-bit restore). \
@@ -83,8 +87,8 @@ RUN set -eux; \
 		fi; \
 	done; \
 	\
-	# Collect shared libraries for the valkey binaries and every module .so. \
-	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli /usr/lib/valkey/modules/*.so; do \
+	# Collect shared libraries for the valkey binaries, awk, and every module .so. \
+	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli "$(command -v gawk)" /usr/lib/valkey/modules/*.so; do \
 		[ -e "$bin" ] || continue; \
 		ldd "$bin" 2>/dev/null | awk '/=>/ {print $3}' | while read -r lib; do \
 			if [ -f "$lib" ]; then \
