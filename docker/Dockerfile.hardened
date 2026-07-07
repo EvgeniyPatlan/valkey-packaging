@@ -41,7 +41,7 @@ RUN set -eux; \
 	apt-get install -y --no-install-recommends \
 		percona-valkey-server \
 		percona-valkey-tools \
-		gawk \
+		mawk \
 	; \
 	rm -rf /var/lib/apt/lists/* /tmp/*.deb; \
 	mkdir -p /usr/local/bin; \
@@ -60,10 +60,13 @@ RUN set -eux; \
 	cp /usr/bin/valkey-* /runtime/usr/local/bin/; \
 	cp -a /etc/valkey /runtime/etc/valkey; \
 	\
-	# awk for in-container scripting (the distroless base ships no text tools). \
-	cp "$(command -v gawk)" /runtime/usr/local/bin/awk; \
+	# awk for in-container scripting (the distroless base ships no text tools).
+	# Use mawk: it needs only libc/libm — both already collected for valkey — so
+	# nothing extra to copy. (gawk pulls libsigsegv/libmpfr/…, which ldd fails to
+	# collect under the QEMU arm64 cross-build, breaking awk on arm64.) \
+	cp "$(command -v mawk)" /runtime/usr/local/bin/awk; \
 	\
-	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli "$(command -v gawk)"; do \
+	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli; do \
 		ldd "$bin" | awk '/=>/ {print $3}' | while read -r lib; do \
 			if [ -f "$lib" ]; then \
 				libdir="$(dirname "$lib" | sed 's|^/lib|/usr/lib|')"; \
