@@ -45,7 +45,7 @@ RUN set -eux; \
 	apt-get install -y --no-install-recommends \
 		percona-valkey-tools \
 		percona-valkey-bundle \
-		gawk \
+		mawk \
 	; \
 	rm -rf /var/lib/apt/lists/* /tmp/*.deb; \
 	mkdir -p /usr/local/bin; \
@@ -66,8 +66,11 @@ RUN set -eux; \
 	cp /usr/bin/valkey-* /runtime/usr/local/bin/; \
 	cp -a /etc/valkey /runtime/etc/valkey; \
 	\
-	# awk for in-container scripting (the distroless base ships no text tools). \
-	cp "$(command -v gawk)" /runtime/usr/local/bin/awk; \
+	# awk for in-container scripting (the distroless base ships no text tools).
+	# Use mawk: it needs only libc/libm — both already collected for valkey — so
+	# nothing extra to copy. (gawk pulls libsigsegv/libmpfr/…, which ldd fails to
+	# collect under the QEMU arm64 cross-build, breaking awk on arm64.) \
+	cp "$(command -v mawk)" /runtime/usr/local/bin/awk; \
 	\
 	# Module shared objects. Valkey refuses to load a non-executable module, so
 	# force 0755 defensively (a module package built on DEB may ship the .so 0644
@@ -87,8 +90,9 @@ RUN set -eux; \
 		fi; \
 	done; \
 	\
-	# Collect shared libraries for the valkey binaries, awk, and every module .so. \
-	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli "$(command -v gawk)" /usr/lib/valkey/modules/*.so; do \
+	# Collect shared libraries for the valkey binaries and every module .so
+	# (mawk needs only libc/libm, already brought in by valkey — no entry here). \
+	for bin in /usr/bin/valkey-server /usr/bin/valkey-cli /usr/lib/valkey/modules/*.so; do \
 		[ -e "$bin" ] || continue; \
 		ldd "$bin" 2>/dev/null | awk '/=>/ {print $3}' | while read -r lib; do \
 			if [ -f "$lib" ]; then \
