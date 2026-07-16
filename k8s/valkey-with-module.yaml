@@ -1,0 +1,54 @@
+# Percona Valkey with one injected module (json).
+#
+# A Valkey module .so is loaded in-process by valkey-server, so it cannot run as
+# its own pod/container. The thin module artifact image is used as an
+# initContainer: it copies the module (with its self-contained, $ORIGIN-linked
+# libraries) into a shared emptyDir, and the stock server loads it via
+# --loadmodule. Swap json / libjson.so for bloom, search, ldap, or audit.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey-json
+  labels:
+    app: valkey-json
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: valkey-json
+  template:
+    metadata:
+      labels:
+        app: valkey-json
+    spec:
+      volumes:
+        - name: modules
+          emptyDir: {}
+      initContainers:
+        - name: module-json
+          image: perconalab/valkey-mod-json:1.0.2
+          command: ["cp", "-a", "/modules/json", "/shared/"]
+          volumeMounts:
+            - name: modules
+              mountPath: /shared
+      containers:
+        - name: valkey
+          image: perconalab/valkey:9.1.0
+          args: ["--loadmodule", "/shared/json/libjson.so"]
+          ports:
+            - name: valkey
+              containerPort: 6379
+          volumeMounts:
+            - name: modules
+              mountPath: /shared
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-json
+spec:
+  selector:
+    app: valkey-json
+  ports:
+    - port: 6379
+      targetPort: 6379

@@ -1,5 +1,8 @@
 .PHONY: build build-hardened build-rpm run stop clean logs test test-hardened test-rpm help all \
-        build-bundle build-bundle-hardened build-bundle-rpm test-bundle test-bundle-hardened test-bundle-rpm
+        build-bundle build-bundle-hardened build-bundle-rpm test-bundle test-bundle-hardened test-bundle-rpm \
+        build-mod build-mods build-mod-json build-mod-bloom build-mod-search build-mod-ldap build-mod-audit \
+        test-mod test-mods test-mod-json test-mod-bloom test-mod-search test-mod-ldap test-mod-audit \
+        buildx-mod buildx-mods buildx-mod-json buildx-mod-bloom buildx-mod-search buildx-mod-ldap buildx-mod-audit
 
 IMAGE_NAME := perconalab/valkey
 BUNDLE_IMAGE_NAME := perconalab/valkey-bundle
@@ -8,6 +11,30 @@ REPO_CHANNEL ?= experimental
 
 TAG_HARDENED := $(VALKEY_VERSION)-hardened
 TAG_RPM := $(VALKEY_VERSION)
+
+# --- Module artifact images (thin, self-contained; injected in k8s) ----------
+MOD_IMAGE_PREFIX := perconalab/valkey-mod
+
+MOD_VERSION_json   := 1.0.2
+MOD_VERSION_bloom  := 1.0.1
+MOD_VERSION_search := 1.2.0
+MOD_VERSION_ldap   := 1.1.1
+MOD_VERSION_audit  := 1.0.0
+
+MOD_SOURCE_json   := https://github.com/valkey-io/valkey-json
+MOD_SOURCE_bloom  := https://github.com/valkey-io/valkey-bloom
+MOD_SOURCE_search := https://github.com/valkey-io/valkey-search
+MOD_SOURCE_ldap   := https://github.com/valkey-io/valkey-ldap
+MOD_SOURCE_audit  := https://github.com/martinrvisser/valkey-audit
+
+MODULE ?= json
+
+# Multi-arch (buildx) settings for module images. A multi-arch image cannot be
+# loaded into the local image store, so buildx targets push to the registry by
+# default; override MOD_OUTPUT (e.g. '--output type=oci,dest=out.tar') to avoid
+# pushing. Requires `docker buildx` and a registry login for --push.
+PLATFORMS  ?= linux/amd64,linux/arm64
+MOD_OUTPUT ?= --push
 
 help:
 	@echo "Valkey Docker Images"
@@ -21,6 +48,9 @@ help:
 	@echo "  test-hardened  - Test hardened image"
 	@echo "  test-rpm       - Test RPM image"
 	@echo "  test-bundle    - Test both bundle images"
+	@echo "  build-mods     - Build all 5 thin module artifact images (json/bloom/search/ldap/audit)"
+	@echo "  test-mods      - Inject each module into a stock server and verify it loads"
+	@echo "  buildx-mods    - Build+push all 5 module images multi-arch (amd64+arm64; needs buildx)"
 	@echo "  run            - Start Valkey container with docker-compose"
 	@echo "  stop           - Stop Valkey container"
 	@echo "  logs           - Show container logs"
@@ -67,6 +97,57 @@ test-bundle-hardened:
 
 test-bundle-rpm:
 	VALKEY_VERSION=$(VALKEY_VERSION) ./test-image.sh $(BUNDLE_IMAGE_NAME):$(TAG_RPM) bundle-rpm
+
+# --- Module artifact images -------------------------------------------------
+# Build one module image:  make build-mod MODULE=search
+build-mod:
+	docker build \
+	  --build-arg MODULE=$(MODULE) \
+	  --build-arg MODULE_VERSION=$(MOD_VERSION_$(MODULE)) \
+	  --build-arg MODULE_SOURCE=$(MOD_SOURCE_$(MODULE)) \
+	  --build-arg REPO_CHANNEL=$(REPO_CHANNEL) \
+	  -t $(MOD_IMAGE_PREFIX)-$(MODULE):$(MOD_VERSION_$(MODULE)) \
+	  -f Dockerfile.module .
+
+build-mod-json:   ; $(MAKE) build-mod MODULE=json
+build-mod-bloom:  ; $(MAKE) build-mod MODULE=bloom
+build-mod-search: ; $(MAKE) build-mod MODULE=search
+build-mod-ldap:   ; $(MAKE) build-mod MODULE=ldap
+build-mod-audit:  ; $(MAKE) build-mod MODULE=audit
+build-mods: build-mod-json build-mod-bloom build-mod-search build-mod-ldap build-mod-audit
+
+# Inject a module into a stock server and assert it loads.
+# Override the server image with SRV_IMAGE=... (e.g. the hardened tag).
+test-mod:
+	VALKEY_VERSION=$(VALKEY_VERSION) ./test-module-inject.sh \
+	  $(MOD_IMAGE_PREFIX)-$(MODULE):$(MOD_VERSION_$(MODULE)) $(MODULE) $(SRV_IMAGE)
+
+test-mod-json:   ; $(MAKE) test-mod MODULE=json
+test-mod-bloom:  ; $(MAKE) test-mod MODULE=bloom
+test-mod-search: ; $(MAKE) test-mod MODULE=search
+test-mod-ldap:   ; $(MAKE) test-mod MODULE=ldap
+test-mod-audit:  ; $(MAKE) test-mod MODULE=audit
+test-mods: test-mod-json test-mod-bloom test-mod-search test-mod-ldap test-mod-audit
+
+# Multi-arch module images (amd64+arm64). Needs docker buildx; pushes a manifest
+# list to the registry (multi-arch can't be loaded locally). Build one arch for
+# local testing with the plain build-mod target instead.
+buildx-mod:
+	docker buildx build \
+	  --platform $(PLATFORMS) \
+	  --build-arg MODULE=$(MODULE) \
+	  --build-arg MODULE_VERSION=$(MOD_VERSION_$(MODULE)) \
+	  --build-arg MODULE_SOURCE=$(MOD_SOURCE_$(MODULE)) \
+	  --build-arg REPO_CHANNEL=$(REPO_CHANNEL) \
+	  -t $(MOD_IMAGE_PREFIX)-$(MODULE):$(MOD_VERSION_$(MODULE)) \
+	  -f Dockerfile.module $(MOD_OUTPUT) .
+
+buildx-mod-json:   ; $(MAKE) buildx-mod MODULE=json
+buildx-mod-bloom:  ; $(MAKE) buildx-mod MODULE=bloom
+buildx-mod-search: ; $(MAKE) buildx-mod MODULE=search
+buildx-mod-ldap:   ; $(MAKE) buildx-mod MODULE=ldap
+buildx-mod-audit:  ; $(MAKE) buildx-mod MODULE=audit
+buildx-mods: buildx-mod-json buildx-mod-bloom buildx-mod-search buildx-mod-ldap buildx-mod-audit
 
 run:
 	@echo "Starting Valkey..."
