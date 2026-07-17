@@ -1,0 +1,52 @@
+# Thin, self-contained Valkey module artifact image.
+#
+# A module .so is not runnable on its own; valkey-server dlopen's it in-process.
+# This image is a file carrier: it ships one module together with its non-glibc
+# runtime closure (RUNPATH=$ORIGIN), to be copied into a shared volume and
+# loaded by a stock Percona Valkey server (see ../k8s/ for the injection
+# pattern). The module .so is lifted from the prebuilt percona-valkey-<module>
+# package in the valkey-91 repo, so no module is compiled here.
+#
+# Build: docker build --build-arg MODULE=json -f Dockerfile.module .
+#
+# The build base is an el9 image (glibc 2.34, the oldest among the target
+# server images) so the bundled libraries also run on newer-glibc servers.
+ARG BUILD_BASE=oraclelinux:9
+ARG RUNTIME_BASE=busybox:stable
+
+FROM ${BUILD_BASE} AS build
+ARG MODULE
+ARG REPO_CHANNEL=testing
+COPY bundle-module-libs.sh /usr/local/bin/bundle-module-libs.sh
+RUN set -eux; \
+    test -n "${MODULE}"; \
+    dnf install -y oracle-epel-release-el9; \
+    dnf install -y patchelf; \
+    dnf install -y https://repo.percona.com/yum/percona-release-latest.noarch.rpm; \
+    percona-release disable all; \
+    percona-release enable valkey-91 "${REPO_CHANNEL}"; \
+    dnf install -y "percona-valkey-${MODULE}"; \
+    so="$(rpm -ql "percona-valkey-${MODULE}" | grep -E '/valkey/modules/[^/]+\.so$' | head -n1)"; \
+    test -n "${so}"; \
+    out="/out/modules/${MODULE}"; \
+    sh /usr/local/bin/bundle-module-libs.sh "${so}" "${out}"; \
+    if [ -d "/usr/share/percona-valkey-${MODULE}/sbom" ]; then \
+        mkdir -p "${out}/sbom"; \
+        cp -a "/usr/share/percona-valkey-${MODULE}/sbom/." "${out}/sbom/"; \
+    fi; \
+    for lic in "/usr/share/licenses/percona-valkey-${MODULE}"/* \
+               "/usr/share/doc/percona-valkey-${MODULE}/LICENSE"; do \
+        [ -f "${lic}" ] && cp "${lic}" "${out}/" || true; \
+    done; \
+    ls -lR "${out}"
+
+FROM ${RUNTIME_BASE}
+ARG MODULE
+ARG MODULE_VERSION=""
+ARG MODULE_SOURCE=""
+LABEL org.opencontainers.image.vendor="Percona" \
+      org.opencontainers.image.title="Percona Valkey Module: ${MODULE}" \
+      org.opencontainers.image.description="Self-contained Percona Valkey ${MODULE} module artifact for Kubernetes injection" \
+      org.opencontainers.image.version="${MODULE_VERSION}" \
+      org.opencontainers.image.source="${MODULE_SOURCE}"
+COPY --from=build /out/modules /modules

@@ -1,0 +1,72 @@
+# Percona Valkey with several modules stacked onto a single stock server.
+#
+# Each module is injected by its own initContainer into its own subdirectory of
+# the shared volume. Every module carries its private libraries and resolves
+# them via $ORIGIN, so two modules never collide even if they ship different
+# versions of the same library. Add or drop a module by adding/removing its
+# initContainer plus a matching --loadmodule arg.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey-modules
+  labels:
+    app: valkey-modules
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: valkey-modules
+  template:
+    metadata:
+      labels:
+        app: valkey-modules
+    spec:
+      volumes:
+        - name: modules
+          emptyDir: {}
+      initContainers:
+        - name: module-json
+          image: perconalab/valkey-mod-json:1.0.2
+          command: ["cp", "-a", "/modules/json", "/shared/"]
+          volumeMounts:
+            - name: modules
+              mountPath: /shared
+        - name: module-bloom
+          image: perconalab/valkey-mod-bloom:1.0.1
+          command: ["cp", "-a", "/modules/bloom", "/shared/"]
+          volumeMounts:
+            - name: modules
+              mountPath: /shared
+        - name: module-search
+          image: perconalab/valkey-mod-search:1.2.0
+          command: ["cp", "-a", "/modules/search", "/shared/"]
+          volumeMounts:
+            - name: modules
+              mountPath: /shared
+      containers:
+        - name: valkey
+          image: perconalab/valkey:9.1.0
+          args:
+            - "--loadmodule"
+            - "/shared/json/libjson.so"
+            - "--loadmodule"
+            - "/shared/bloom/libvalkey_bloom.so"
+            - "--loadmodule"
+            - "/shared/search/libsearch.so"
+          ports:
+            - name: valkey
+              containerPort: 6379
+          volumeMounts:
+            - name: modules
+              mountPath: /shared
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-modules
+spec:
+  selector:
+    app: valkey-modules
+  ports:
+    - port: 6379
+      targetPort: 6379
