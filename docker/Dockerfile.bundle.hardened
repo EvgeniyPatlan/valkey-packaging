@@ -125,13 +125,13 @@ RUN chmod 755 /runtime/usr/local/bin/bundle-docker-entrypoint.sh
 
 FROM ${BASE_IMAGE}:${BASE_RUNTIME_TAG}@${BASE_RUNTIME_DIGEST}
 
-ENV VALKEY_VERSION=9.1.0
+ENV VALKEY_VERSION=9.1.1
 
 LABEL org.opencontainers.image.source="https://github.com/valkey-io/valkey-bundle" \
       org.opencontainers.image.vendor="Percona" \
       org.opencontainers.image.title="Percona Valkey Bundle (Hardened)" \
       org.opencontainers.image.description="Hardened Percona Valkey bundle (server + json/bloom/search/ldap modules) built on Docker Hardened Image (DHI)" \
-      org.opencontainers.image.version="9.1.0" \
+      org.opencontainers.image.version="9.1.1" \
       org.opencontainers.image.base.name="dhi.io/debian-base:trixie" \
       org.opencontainers.image.base.digest="sha256:e440d0dabdc54675aa9601f0d794c39f549b6178946cfeffd3b5a31da33ec2d3"
 

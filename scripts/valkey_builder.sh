@@ -10,9 +10,8 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 readonly PRODUCT="valkey"
 readonly PACKAGE_NAME="percona-valkey"
-readonly DEFAULT_VERSION="9.1.0"
+readonly DEFAULT_VERSION="9.1.1"
 readonly DEFAULT_RELEASE="1"
-# Upstream 9.1.0 is not yet tagged — build from the 9.1 branch.
 readonly DEFAULT_BRANCH="9.1"
 readonly DEFAULT_REPO="https://github.com/valkey-io/valkey.git"
 
@@ -40,7 +39,7 @@ readonly DEFAULT_SEARCH_VERSION="1.2.0"
 # payload of its own. No upstream source to compile — the "source" is a small
 # tarball (README + LICENSE) assembled from this repo's bundle/ dir.
 readonly BUNDLE_PACKAGE_NAME="percona-valkey-bundle"
-readonly DEFAULT_BUNDLE_VERSION="9.1.0"
+readonly DEFAULT_BUNDLE_VERSION="9.1.1"
 
 # Absolute path to the directory containing this script
 BUILDER_SCRIPT_DIR="$(dirname "$(readlink -e "${0}")")"
@@ -227,12 +226,6 @@ copy_artifacts() {
     cp "$@" "$CURDIR/$dest_subdir/"
 }
 
-# deb_apply_codename — append the build distro's codename to the DEB version,
-# producing <pkg>_<version>.<codename>_<arch>.deb. Percona's repo upload
-# (uploadDEBfromAWS) derives the target apt 'codename' from that filename
-# segment; without it the codename is parsed from the version tail (e.g. a
-# 9.1.0-1 build yields a bogus codename '0-1' and reprepro rejects it).
-# Run from inside the extracted Debian source tree (DEB-only tools).
 deb_apply_codename() {
     local codename
     codename="$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-}")"
@@ -389,14 +382,6 @@ EOF
         log_info "Downloading packaging scripts from github"
         git clone https://github.com/EvgeniyPatlan/valkey-packaging.git packaging
 
-        # Check out the packaging branch matching the package version, NOT the
-        # upstream Valkey branch. The packaging repo and the upstream Valkey
-        # repo have different branch names: upstream uses release branches
-        # like "9.1" while the packaging repo uses "9.1.0" (the full version).
-        # Using $BRANCH for both was a long-standing bug — when --branch=9.1
-        # was passed, this would try to git checkout 9.1 in the packaging
-        # repo (which has no such branch) and either abort the build or
-        # silently leave the clone on the default branch with a stale spec.
         local packaging_branch="${PACKAGING_BRANCH:-$VERSION}"
         if [[ -n "$packaging_branch" ]]; then
             cd packaging || die "Cannot cd to packaging"

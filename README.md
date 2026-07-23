@@ -51,7 +51,7 @@ scripts/valkey_builder.sh \
   --build_src_rpm \
   --build_rpm \
   --install_deps \
-  --version=9.1.0 \
+  --version=9.1.1 \
   --branch=9.1
 ```
 
@@ -60,9 +60,9 @@ A Syft SBOM (SPDX + CycloneDX) of the Valkey source tree is generated at build t
 **embedded inside the package** under `/usr/share/percona-valkey/sbom/`, and also copied
 to the `sbom/` output directory.
 
-> **Note:** upstream Valkey 9.1.0 is not yet tagged, so `--branch=9.1` checks out the
+> **Note:** upstream Valkey 9.1.1 is not yet tagged, so `--branch=9.1` checks out the
 > `9.1` development branch from `valkey-io/valkey` while the resulting package is
-> labelled `9.1.0`. Update to `--branch=9.1.0` once upstream tags the release.
+> labelled `9.1.1`. Update to `--branch=9.1.1` once upstream tags the release.
 
 ### Full DEB build (on a Debian/Ubuntu host)
 
@@ -75,7 +75,7 @@ scripts/valkey_builder.sh \
   --build_src_deb \
   --build_deb \
   --install_deps \
-  --version=9.1.0 \
+  --version=9.1.1 \
   --branch=9.1
 ```
 
@@ -225,7 +225,7 @@ The resulting `percona-valkey-bundle` package depends on `percona-valkey`
 (`percona-valkey-server` on DEB) plus `percona-valkey-json`,
 `percona-valkey-bloom`, `percona-valkey-search`, and `percona-valkey-ldap`.
 Versions track the curated set from `valkey-io/valkey-bundle` `versions.json`
-(9.1: server 9.1.0, json 1.0.2, bloom 1.0.1, search 1.2.0, ldap 1.1.1). The
+(9.1: server 9.1.1, json 1.0.2, bloom 1.0.1, search 1.2.0, ldap 1.1.1). The
 modules are still **not loaded automatically** — enable the ones you want with
 `loadmodule` / `MODULE LOAD`.
 
@@ -239,7 +239,7 @@ A Percona-branded **bundle Docker image** is also provided
 auto-discovers and `--loadmodule`s every module in the Valkey module directory.
 
 ```bash
-docker build -f docker/Dockerfile.bundle -t percona-valkey-bundle:9.1.0 docker/
+docker build -f docker/Dockerfile.bundle -t percona-valkey-bundle:9.1.1 docker/
 ```
 
 ### Builder flags reference
@@ -253,7 +253,7 @@ docker build -f docker/Dockerfile.bundle -t percona-valkey-bundle:9.1.0 docker/
 | `--build_src_deb` | Build source DEB package |
 | `--build_deb` | Build binary DEB packages (requires source DEB) |
 | `--install_deps` | Install build dependencies (requires root) |
-| `--version=VER` | Version string (default: `9.1.0`) |
+| `--version=VER` | Version string (default: `9.1.1`) |
 | `--release=REL` | Release number (default: `1`) |
 | `--branch=BRANCH` | Git branch/tag to check out (default: `9.1`) |
 | `--repo=URL` | Source repository URL (default: `https://github.com/valkey-io/valkey.git`) |
@@ -289,7 +289,7 @@ docker build -f docker/Dockerfile.bundle -t percona-valkey-bundle:9.1.0 docker/
 | `--build_bundle_rpm` | Build the percona-valkey-bundle binary RPM (per-arch meta) |
 | `--build_bundle_src_deb` | Build the percona-valkey-bundle source DEB |
 | `--build_bundle_deb` | Build the percona-valkey-bundle binary DEB (per-arch meta) |
-| `--bundle_version=VER` | valkey-bundle version (default: `9.1.0`) |
+| `--bundle_version=VER` | valkey-bundle version (default: `9.1.1`) |
 
 ## Testing packages
 
