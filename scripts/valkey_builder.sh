@@ -820,6 +820,12 @@ install_deps_rpm() {
 }
 
 install_deps_deb() {
+    cat > /etc/apt/apt.conf.d/80-retries <<'EOF'
+Acquire::Retries "5";
+Acquire::http::Timeout "30";
+Acquire::https::Timeout "30";
+Acquire::http::Pipeline-Depth "0";
+EOF
     log_info "Installing DEB build dependencies..."
     apt-get update
 
