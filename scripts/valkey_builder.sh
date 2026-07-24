@@ -827,7 +827,7 @@ install_deps_deb() {
     DEBIAN_FRONTEND=noninteractive apt-get -y install \
         build-essential debhelper devscripts dh-exec dpkg-dev \
         fakeroot ca-certificates lsb-release chrpath \
-        git wget curl tar gzip make gcc
+        git wget curl make gcc
 
     # Valkey build dependencies — try all at once, fall back to individual
     DEBIAN_FRONTEND=noninteractive apt-get -y install \
