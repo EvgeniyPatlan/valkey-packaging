@@ -37,11 +37,11 @@ RUN set -eux; \
 	useradd -r -g valkey -G adm -d /var/lib/valkey -s /usr/sbin/nologin valkey; \
 	mkdir -p /var/lib/valkey; \
 	chown valkey:valkey /var/lib/valkey; \
+	apt-get update; \
+	apt-get upgrade -y; \
 	wget -q -O /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb; \
 	dpkg -i /tmp/percona-release.deb; \
 	percona-release enable valkey-91 ${REPO_CHANNEL}; \
-	apt-get update; \
-	apt-get upgrade -y; \
 	apt-get install -y --no-install-recommends \
 		percona-valkey-tools \
 		percona-valkey-bundle \
