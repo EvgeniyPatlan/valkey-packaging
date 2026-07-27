@@ -1073,15 +1073,15 @@ test_sbom() {
     section_header "Test: SBOM"
 
     local sbom_dir=/usr/share/percona-valkey/sbom
-    assert_file_exists "$sbom_dir/valkey.spdx.json" "SPDX SBOM"
-    assert_file_exists "$sbom_dir/valkey.cdx.json" "CycloneDX SBOM"
+    assert_file_exists "$sbom_dir/percona-valkey.spdx.json" "SPDX SBOM"
+    assert_file_exists "$sbom_dir/percona-valkey.cdx.json" "CycloneDX SBOM"
 
-    if [[ -f "$sbom_dir/valkey.spdx.json" ]] && grep -q '"spdxVersion"' "$sbom_dir/valkey.spdx.json"; then
+    if [[ -f "$sbom_dir/percona-valkey.spdx.json" ]] && grep -q '"spdxVersion"' "$sbom_dir/percona-valkey.spdx.json"; then
         pass "SPDX SBOM is a valid SBOM document"
     else
         fail "SPDX SBOM is a valid SBOM document"
     fi
-    if [[ -f "$sbom_dir/valkey.cdx.json" ]] && grep -q '"bomFormat"' "$sbom_dir/valkey.cdx.json"; then
+    if [[ -f "$sbom_dir/percona-valkey.cdx.json" ]] && grep -q '"bomFormat"' "$sbom_dir/percona-valkey.cdx.json"; then
         pass "CycloneDX SBOM is a valid SBOM document"
     else
         fail "CycloneDX SBOM is a valid SBOM document"
