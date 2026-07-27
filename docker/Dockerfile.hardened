@@ -20,6 +20,7 @@ ARG REPO_CHANNEL=testing
 RUN set -eux; \
     export DEBIAN_FRONTEND=noninteractive; \
 	printf 'Dpkg::Options { "--force-confdef"; "--force-confold"; };\n' > /etc/apt/apt.conf.d/90-confdef; \
+	printf 'Acquire::Retries "5";\nAcquire::Retries::Delay "true";\nAcquire::http::Timeout "120";\nAcquire::https::Timeout "120";\nAcquire::http::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-retries; \
 	apt-get update; \
 	apt-get install -y --no-install-recommends \
 		ca-certificates \

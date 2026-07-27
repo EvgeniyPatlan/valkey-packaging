@@ -54,6 +54,44 @@ log_error() { printf '\033[1;31m[ERROR]\033[0m %s\n' "$*" >&2; }
 die()       { log_error "$@"; exit 1; }
 
 # ---------------------------------------------------------------------------
+# apt resilience — a transient mirror/CDN failure (e.g. "Connection reset by
+# peer" from deb.debian.org) must never fail a build. harden_apt drops in a
+# config with retries, generous timeouts and no HTTP pipelining (flaky Fastly
+# nodes reset pipelined connections). apt_get wraps the WHOLE command in an
+# outer retry loop: apt's own Acquire::Retries handles per-file blips, and when
+# those exhaust, the loop refreshes indexes and retries (a fresh attempt may
+# route to a healthy node; already-fetched .debs stay cached in the archive so
+# re-runs are cheap). Use apt_get for every apt-get update/install.
+# ---------------------------------------------------------------------------
+harden_apt() {
+    [[ -d /etc/apt ]] || return 0
+    mkdir -p /etc/apt/apt.conf.d
+    cat > /etc/apt/apt.conf.d/80-retries <<'EOF'
+Acquire::Retries "5";
+Acquire::Retries::Delay "true";
+Acquire::http::Timeout "120";
+Acquire::https::Timeout "120";
+Acquire::http::Pipeline-Depth "0";
+EOF
+}
+
+apt_get() {
+    harden_apt
+    local attempt rc
+    for attempt in 1 2 3 4 5; do
+        if DEBIAN_FRONTEND=noninteractive command apt-get "$@"; then
+            return 0
+        fi
+        rc=$?
+        log_warn "apt-get $* failed (attempt ${attempt}/5, rc=${rc}); refreshing indexes before retry"
+        DEBIAN_FRONTEND=noninteractive command apt-get update -y >/dev/null 2>&1 || true
+        sleep $(( attempt * 10 ))
+    done
+    log_error "apt-get $* failed after 5 attempts"
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # Cleanup trap
 # ---------------------------------------------------------------------------
 cleanup() {
@@ -836,23 +874,17 @@ install_deps_rpm() {
 }
 
 install_deps_deb() {
-    cat > /etc/apt/apt.conf.d/80-retries <<'EOF'
-Acquire::Retries "5";
-Acquire::http::Timeout "30";
-Acquire::https::Timeout "30";
-Acquire::http::Pipeline-Depth "0";
-EOF
     log_info "Installing DEB build dependencies..."
-    apt-get update
+    apt_get update
 
     # Core build toolchain
-    DEBIAN_FRONTEND=noninteractive apt-get -y install \
+    apt_get -y install \
         build-essential debhelper devscripts dh-exec dpkg-dev \
         fakeroot ca-certificates lsb-release chrpath \
         git wget curl make gcc
 
     # Valkey build dependencies — try all at once, fall back to individual
-    DEBIAN_FRONTEND=noninteractive apt-get -y install \
+    apt_get -y install \
         libjemalloc-dev libssl-dev libsystemd-dev \
         libhiredis-dev liblua5.1-dev liblzf-dev \
         lua-bitop-dev lua-cjson-dev \
@@ -872,7 +904,7 @@ EOF
             pandoc python3-sphinx python3-sphinx-rtd-theme
         )
         for dep in "${fallback_pkgs[@]}"; do
-            DEBIAN_FRONTEND=noninteractive apt-get -y install "$dep" \
+            apt_get -y install "$dep" \
                 || log_warn "$dep not available"
         done
     }
@@ -918,13 +950,13 @@ install_deps_json() {
             percona-valkey-devel
     else
         export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get -y install wget ca-certificates gnupg lsb-release
+        apt_get update
+        apt_get -y install wget ca-certificates gnupg lsb-release
         wget -qO /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb
-        dpkg -i /tmp/percona-release.deb || apt-get install -f -y
+        dpkg -i /tmp/percona-release.deb || apt_get install -f -y
         percona-release enable-only "${repo_name}" "${channel}" || percona-release enable "${repo_name}" "${channel}"
-        apt-get update
-        apt-get -y install \
+        apt_get update
+        apt_get -y install \
             debhelper devscripts dh-exec dpkg-dev fakeroot \
             cmake g++ make git \
             percona-valkey-dev
@@ -966,8 +998,8 @@ install_deps_bloom() {
         command -v curl >/dev/null 2>&1 || $pkg_mgr -y install --allowerasing curl || true
     else
         export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get -y install \
+        apt_get update
+        apt_get -y install \
             build-essential debhelper devscripts dh-exec dpkg-dev fakeroot \
             git curl ca-certificates wget pkg-config python3 \
             clang libclang-dev
@@ -1026,13 +1058,13 @@ install_deps_search() {
         fi
     else
         export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get -y install \
+        apt_get update
+        apt_get -y install \
             build-essential debhelper devscripts dh-exec dpkg-dev fakeroot \
             cmake make git autoconf automake libtool pkg-config \
             libssl-dev libsystemd-dev ca-certificates
         # Prefer g++-12 where the default is older (e.g. Ubuntu jammy); best-effort.
-        apt-get -y install g++-12 gcc-12 || true
+        apt_get -y install g++-12 gcc-12 || true
     fi
     ensure_syft_system
 }
@@ -1665,8 +1697,8 @@ install_deps_bundle() {
         $pkg_mgr -y install rpm-build rpmdevtools
     else
         export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get -y install debhelper devscripts dpkg-dev dh-exec fakeroot
+        apt_get update
+        apt_get -y install debhelper devscripts dpkg-dev dh-exec fakeroot
     fi
 }
 
