@@ -248,6 +248,33 @@ deb_apply_codename() {
 # ---------------------------------------------------------------------------
 SYFT_BIN=""
 
+# Pin Syft so the installer downloads the release directly instead of doing the
+# rate-limited GitHub "latest release" API lookup: parallel matrix builds share
+# one CI egress IP and exhaust the 60 req/h unauthenticated limit, which made the
+# install fail silently. Override with SYFT_VERSION=vX.Y.Z.
+SYFT_VERSION="${SYFT_VERSION:-v1.49.0}"
+
+# _syft_install BINDIR — download Syft into BINDIR, pinned to $SYFT_VERSION, with
+# retries for transient network. Returns 0 iff BINDIR/syft ends up executable.
+# Installer output is left visible (not sent to /dev/null) so a real failure is
+# diagnosable here instead of surfacing later as a confusing SBOM abort.
+_syft_install() {
+    local bindir="$1" i
+    mkdir -p "$bindir"
+    command -v curl &>/dev/null || command -v wget &>/dev/null || return 1
+    for i in 1 2 3; do
+        if command -v curl &>/dev/null; then
+            curl -sSfL https://get.anchore.io/syft | sh -s -- -b "$bindir" "$SYFT_VERSION" || true
+        else
+            wget -qO- https://get.anchore.io/syft | sh -s -- -b "$bindir" "$SYFT_VERSION" || true
+        fi
+        [[ -x "${bindir}/syft" ]] && return 0
+        log_warn "Syft install attempt ${i}/3 failed; retrying in $((i * 5))s..."
+        sleep $((i * 5))
+    done
+    return 1
+}
+
 # install_syft — make Syft available, preferring an already-installed binary
 # and otherwise downloading it into $WORKDIR/.sbom-tools/bin. Non-fatal: on
 # failure it logs a warning and leaves SYFT_BIN empty so the package build is
@@ -261,16 +288,9 @@ install_syft() {
         return 0
     fi
 
+    log_info "Installing Syft ${SYFT_VERSION} for SBOM generation..."
     local bindir="${WORKDIR}/.sbom-tools/bin"
-    mkdir -p "$bindir"
-    log_info "Installing Syft for SBOM generation..."
-    if command -v curl &>/dev/null; then
-        curl -sSfL https://get.anchore.io/syft | sh -s -- -b "$bindir" >/dev/null 2>&1 || true
-    elif command -v wget &>/dev/null; then
-        wget -qO- https://get.anchore.io/syft | sh -s -- -b "$bindir" >/dev/null 2>&1 || true
-    fi
-
-    if [[ -x "${bindir}/syft" ]]; then
+    if _syft_install "$bindir"; then
         SYFT_BIN="${bindir}/syft"
     else
         log_warn "Could not install Syft; SBOM will not be generated"
@@ -281,15 +301,11 @@ install_syft() {
 # ensure_syft_system — install Syft into /usr/local/bin so it is on PATH for the
 # module spec/rules, which generate the package's SBOM from the *built* tree at
 # package-build time. Called from install_deps_* (root, same container as the
-# build). Idempotent; tries curl then wget.
+# build). Idempotent; pinned + retried via _syft_install.
 ensure_syft_system() {
     command -v syft &>/dev/null && return 0
-    log_info "Installing Syft (system-wide) for in-package SBOM generation..."
-    if command -v curl &>/dev/null; then
-        curl -sSfL https://get.anchore.io/syft | sh -s -- -b /usr/local/bin >/dev/null 2>&1 || true
-    elif command -v wget &>/dev/null; then
-        wget -qO- https://get.anchore.io/syft | sh -s -- -b /usr/local/bin >/dev/null 2>&1 || true
-    fi
+    log_info "Installing Syft ${SYFT_VERSION} (system-wide) for in-package SBOM generation..."
+    _syft_install /usr/local/bin || true
     command -v syft &>/dev/null || log_warn "Syft not installed; the package SBOM step will fail loudly at build time"
 }
 
