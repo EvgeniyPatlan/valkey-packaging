@@ -1141,6 +1141,8 @@ build_json_srpm() {
     # Allow --json_version to flow through to the package version.
     sed -i "s/^Version:.*$/Version:        ${JSON_VERSION}/" \
         "json_rpmbuild/SPECS/${JSON_PACKAGE_NAME}.spec"
+    sed -i "s/^Release:.*$/Release:        ${RELEASE}%{?dist}/" \
+        "json_rpmbuild/SPECS/${JSON_PACKAGE_NAME}.spec"
 
     rpmbuild -bs --define "_topdir ${WORKDIR}/json_rpmbuild" --define "dist .generic" \
         "json_rpmbuild/SPECS/${JSON_PACKAGE_NAME}.spec"
@@ -1324,6 +1326,8 @@ build_json_source_deb() {
     cp -r "${BUILDER_SCRIPT_DIR}/../json/debian" "${name}-${ver}/debian"
     chmod +x "${name}-${ver}/debian/rules"
 
+    sed -i "1s/(\([^)]*\))/(${ver}-${RELEASE})/" "${name}-${ver}/debian/changelog"
+
     ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
         || die "json source deb build failed"
 
@@ -1393,6 +1397,8 @@ build_bloom_srpm() {
 
     sed -i "s/^Version:.*$/Version:        ${BLOOM_VERSION}/" \
         "bloom_rpmbuild/SPECS/${BLOOM_PACKAGE_NAME}.spec"
+    sed -i "s/^Release:.*$/Release:        ${RELEASE}%{?dist}/" \
+        "bloom_rpmbuild/SPECS/${BLOOM_PACKAGE_NAME}.spec"
 
     rpmbuild -bs --define "_topdir ${WORKDIR}/bloom_rpmbuild" --define "dist .generic" \
         "bloom_rpmbuild/SPECS/${BLOOM_PACKAGE_NAME}.spec"
@@ -1456,6 +1462,8 @@ build_bloom_source_deb() {
 
     cp -r "${BUILDER_SCRIPT_DIR}/../bloom/debian" "${name}-${ver}/debian"
     chmod +x "${name}-${ver}/debian/rules"
+
+    sed -i "1s/(\([^)]*\))/(${ver}-${RELEASE})/" "${name}-${ver}/debian/changelog"
 
     ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
         || die "bloom source deb build failed"
@@ -1526,6 +1534,8 @@ build_search_srpm() {
 
     sed -i "s/^Version:.*$/Version:        ${SEARCH_VERSION}/" \
         "search_rpmbuild/SPECS/${SEARCH_PACKAGE_NAME}.spec"
+    sed -i "s/^Release:.*$/Release:        ${RELEASE}%{?dist}/" \
+        "search_rpmbuild/SPECS/${SEARCH_PACKAGE_NAME}.spec"
 
     rpmbuild -bs --define "_topdir ${WORKDIR}/search_rpmbuild" --define "dist .generic" \
         "search_rpmbuild/SPECS/${SEARCH_PACKAGE_NAME}.spec"
@@ -1589,6 +1599,8 @@ build_search_source_deb() {
 
     cp -r "${BUILDER_SCRIPT_DIR}/../search/debian" "${name}-${ver}/debian"
     chmod +x "${name}-${ver}/debian/rules"
+
+    sed -i "1s/(\([^)]*\))/(${ver}-${RELEASE})/" "${name}-${ver}/debian/changelog"
 
     ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
         || die "search source deb build failed"
@@ -1726,6 +1738,8 @@ build_bundle_srpm() {
     # Allow --bundle_version to flow through to the package version.
     sed -i "s/^Version:.*$/Version:        ${BUNDLE_VERSION}/" \
         "bundle_rpmbuild/SPECS/${BUNDLE_PACKAGE_NAME}.spec"
+    sed -i "s/^Release:.*$/Release:        ${RELEASE}%{?dist}/" \
+        "bundle_rpmbuild/SPECS/${BUNDLE_PACKAGE_NAME}.spec"
 
     rpmbuild -bs --define "_topdir ${WORKDIR}/bundle_rpmbuild" --define "dist .generic" \
         "bundle_rpmbuild/SPECS/${BUNDLE_PACKAGE_NAME}.spec"
@@ -1789,6 +1803,8 @@ build_bundle_source_deb() {
 
     cp -r "${BUILDER_SCRIPT_DIR}/../bundle/debian" "${name}-${ver}/debian"
     chmod +x "${name}-${ver}/debian/rules"
+
+    sed -i "1s/(\([^)]*\))/(${ver}-${RELEASE})/" "${name}-${ver}/debian/changelog"
 
     ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
         || die "bundle source deb build failed"
