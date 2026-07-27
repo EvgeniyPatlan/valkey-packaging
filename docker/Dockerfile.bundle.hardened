@@ -22,6 +22,8 @@ ARG REPO_CHANNEL=testing
 # add Syft (build stage only — never copied into the runtime image) for SBOM
 # generation in the next stage.
 RUN set -eux; \
+	export DEBIAN_FRONTEND=noninteractive; \
+	printf 'Dpkg::Options { "--force-confdef"; "--force-confold"; };\n' > /etc/apt/apt.conf.d/90-confdef; \
 	apt-get update; \
 	apt-get install -y --no-install-recommends \
 		ca-certificates \
