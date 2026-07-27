@@ -1073,6 +1073,7 @@ build_srpm() {
 
     sed -i 's:.rhel7:%{dist}:' "${WORKDIR}/rpmbuild/SPECS/${PACKAGE_NAME}.spec"
     sed -i "s/^Version:.*$/Version:        ${VERSION}/" "${WORKDIR}/rpmbuild/SPECS/${PACKAGE_NAME}.spec"
+    sed -i "s/^Release:.*$/Release:        ${RELEASE}%{?dist}/" "${WORKDIR}/rpmbuild/SPECS/${PACKAGE_NAME}.spec"
 
     rpmbuild -bs --define "_topdir ${WORKDIR}/rpmbuild" --define "dist .generic" \
         --define "version ${VERSION}" rpmbuild/SPECS/${PACKAGE_NAME}.spec
