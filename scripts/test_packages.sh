@@ -810,37 +810,47 @@ test_systemd_restart_on_failure() {
         return
     fi
 
-    # Get original PID
-    local old_pid
+    # Get original PID and restart counter
+    local old_pid restarts_before
     old_pid="$(systemctl show "$server_service" --property=MainPID --value 2>/dev/null)" || true
     if [[ -z "$old_pid" ]] || [[ "$old_pid" == "0" ]]; then
         fail "get MainPID for restart test (got: $old_pid)"
         systemctl stop "$server_service" 2>/dev/null || true
         return
     fi
-    echo "Original PID: $old_pid"
+    restarts_before="$(systemctl show "$server_service" --property=NRestarts --value 2>/dev/null)"
+    restarts_before="${restarts_before:-0}"
+    echo "Original PID: $old_pid (NRestarts=$restarts_before)"
 
-    # Kill with SEGV to trigger on-failure restart
-    echo "Sending SIGSEGV to PID $old_pid..."
-    kill -SEGV "$old_pid" 2>/dev/null || true
+    # Kill the main process to trigger the on-failure restart. Use SIGKILL: it
+    # cannot be caught, so the process reliably dies. An external SIGSEGV is
+    # unreliable here — valkey installs its own crash-signal handler, which can
+    # catch an externally delivered signal and keep running, so no restart occurs.
+    echo "Killing PID $old_pid (SIGKILL)..."
+    kill -KILL "$old_pid" 2>/dev/null || true
 
     # Wait for service to restart
     sleep 2
     if wait_for_service "$server_service" 15; then
-        pass "$server_service restarted after SIGSEGV"
+        pass "$server_service restarted after main process was killed"
     else
-        fail "$server_service restarted after SIGSEGV (did not become active)"
+        fail "$server_service restarted after main process was killed (did not become active)"
         systemctl stop "$server_service" 2>/dev/null || true
         return
     fi
 
-    # Verify new PID differs
-    local new_pid
+    # Verify systemd actually restarted it. NRestarts is the authoritative signal
+    # (it increments on each on-failure restart); a changed MainPID is a secondary
+    # check, since PID reuse can otherwise make a real restart look unchanged.
+    local new_pid restarts_after
     new_pid="$(systemctl show "$server_service" --property=MainPID --value 2>/dev/null)" || true
-    if [[ -n "$new_pid" ]] && [[ "$new_pid" != "0" ]] && [[ "$new_pid" != "$old_pid" ]]; then
-        pass "new PID ($new_pid) differs from old PID ($old_pid)"
+    restarts_after="$(systemctl show "$server_service" --property=NRestarts --value 2>/dev/null)"
+    restarts_after="${restarts_after:-0}"
+    if [[ "$restarts_after" -gt "$restarts_before" ]] \
+        || { [[ -n "$new_pid" ]] && [[ "$new_pid" != "0" ]] && [[ "$new_pid" != "$old_pid" ]]; }; then
+        pass "$server_service restarted by systemd (NRestarts ${restarts_before}->${restarts_after}, PID ${old_pid}->${new_pid})"
     else
-        fail "new PID ($new_pid) differs from old PID ($old_pid)"
+        fail "$server_service restarted by systemd (NRestarts ${restarts_before}->${restarts_after}, PID ${old_pid}->${new_pid})"
     fi
 
     echo "Stopping $server_service..."
