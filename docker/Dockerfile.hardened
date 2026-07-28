@@ -89,6 +89,18 @@ RUN set -eux; \
 	grep '^valkey:' /etc/group > /runtime/etc/group.valkey; \
 	grep '^root:' /etc/group >> /runtime/etc/group.valkey; \
 	\
+	# Per-package SBOM set the percona-valkey package ships under \
+	# /usr/share/percona-valkey/sbom/ — carry it into the distroless image so the \
+	# full embedded set (spdx/cdx json+xml, Syft table, licenses) is preserved, not \
+	# just the /runtime scan below. (The UBI9 image gets these from the package.) \
+	mkdir -p /runtime/usr/share; \
+	for d in /usr/share/percona-valkey*/; do \
+		if [ -d "${d}sbom" ]; then \
+			mkdir -p "/runtime${d}"; \
+			cp -a "${d}sbom" "/runtime${d}"; \
+		fi; \
+	done; \
+	\
 	vkver="$(valkey-server --version | awk '{print $3}' | cut -d= -f2)"; \
 	syft scan dir:/runtime \
 		--source-name percona-valkey --source-version "$vkver" \
@@ -120,6 +132,8 @@ COPY --from=package-install /runtime/usr/local/bin/ /usr/local/bin/
 COPY --from=package-install /runtime/usr/local/valkey.spdx.json /usr/local/
 COPY --from=package-install /runtime/usr/local/valkey.cdx.json /usr/local/
 COPY --from=package-install /runtime/etc/valkey/ /etc/valkey/
+# Per-package SBOM set (spdx/cdx json+xml, Syft table, licenses), same path as the UBI9 image.
+COPY --from=package-install /runtime/usr/share/ /usr/share/
 
 # Copy all shared libraries valkey needs (collected via ldd)
 # Preserves architecture-specific paths (x86_64-linux-gnu or aarch64-linux-gnu)

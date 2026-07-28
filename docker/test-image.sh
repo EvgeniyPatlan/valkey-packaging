@@ -141,6 +141,14 @@ check "SPDX SBOM present (/usr/local/${SBOM_BASE}.spdx.json)" \
     docker run --rm --entrypoint="" "$IMAGE" test -f "/usr/local/${SBOM_BASE}.spdx.json"
 check "CycloneDX SBOM present (/usr/local/${SBOM_BASE}.cdx.json)" \
     docker run --rm --entrypoint="" "$IMAGE" test -f "/usr/local/${SBOM_BASE}.cdx.json"
+# The package also embeds a full SBOM set under /usr/share/percona-valkey/sbom/
+# (spdx/cdx json+xml, Syft table, licenses). The UBI9 image gets these from the
+# package; the hardened image must copy them explicitly. Assert every format is
+# shipped, not just the synthesized /usr/local scan above.
+for ext in spdx.json cdx.json spdx cdx.xml sbom.txt licenses.txt; do
+    check "embedded package SBOM present (/usr/share/percona-valkey/sbom/percona-valkey.$ext)" \
+        docker run --rm --entrypoint="" "$IMAGE" test -f "/usr/share/percona-valkey/sbom/percona-valkey.$ext"
+done
 # Read whole file via shell builtins (no cat/grep needed inside the image) and
 # grep on the host. A real Syft SPDX document carries an "spdxVersion" key.
 check "SPDX SBOM is a valid SBOM document" \
