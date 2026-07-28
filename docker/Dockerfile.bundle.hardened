@@ -48,6 +48,7 @@ RUN set -eux; \
 	apt-get install -y --no-install-recommends \
 		percona-valkey-tools \
 		percona-valkey-bundle \
+		percona-valkey-sentinel \
 		mawk \
 	; \
 	rm -rf /var/lib/apt/lists/* /tmp/*.deb; \

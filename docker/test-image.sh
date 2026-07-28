@@ -115,6 +115,13 @@ echo "3. valkey-benchmark binary:"
 check "valkey-benchmark present" \
     docker run --rm "$IMAGE" valkey-benchmark --version
 
+echo "3b. valkey-sentinel binary:"
+# Sentinel ships in its own DEB package (percona-valkey-sentinel); the RPM bundles
+# it in the main package. Assert it is present so the DEB/RPM image asymmetry —
+# where the hardened image shipped no sentinel — cannot regress.
+check "valkey-sentinel present" \
+    docker run --rm "$IMAGE" valkey-sentinel --version
+
 echo "4. Non-root user:"
 docker run --rm "$IMAGE" id
 check "UID is not 0" \
