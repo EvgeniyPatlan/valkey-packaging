@@ -312,7 +312,9 @@ write_generated_conf() {
 
     chmod 0640 "$GENERATED_CONF"
     if [ -z "${VALKEY_FIRSTBOOT_SKIP_CHOWN:-}" ]; then
-        chown valkey:valkey "$GENERATED_CONF"
+        # Matches the ownership the package gives default.conf: the server reads
+        # its credentials but cannot rewrite them.
+        chown root:valkey "$GENERATED_CONF"
     fi
 }
 
@@ -819,7 +821,7 @@ valkey_generated_conf: /etc/valkey/valkey-generated.conf
   ansible.builtin.copy:
     content: ""
     dest: "{{ valkey_generated_conf }}"
-    owner: valkey
+    owner: root
     group: valkey
     mode: "0640"
     force: false
@@ -1122,8 +1124,8 @@ GENERATED=/etc/valkey/valkey-generated.conf
     [ ! -s "$GENERATED" ]
 }
 
-@test 'the generated configuration is owned by valkey with mode 0640' {
-    [ "$(stat -c '%U:%G' "$GENERATED")" = "valkey:valkey" ]
+@test 'the generated configuration is owned root:valkey with mode 0640' {
+    [ "$(stat -c '%U:%G' "$GENERATED")" = "root:valkey" ]
     [ "$(stat -c '%a' "$GENERATED")" = "640" ]
 }
 

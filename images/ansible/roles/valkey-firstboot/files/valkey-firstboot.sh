@@ -60,7 +60,9 @@ write_generated_conf() {
 
     chmod 0640 "$GENERATED_CONF"
     if [ -z "${VALKEY_FIRSTBOOT_SKIP_CHOWN:-}" ]; then
-        chown valkey:valkey "$GENERATED_CONF"
+        # Matches the ownership the package gives default.conf: the server reads
+        # its credentials but cannot rewrite them.
+        chown root:valkey "$GENERATED_CONF"
     fi
 }
 

@@ -120,7 +120,7 @@ flowchart TD
     P7 --> V
 ```
 
-The script writes `/etc/valkey/valkey-generated.conf`, owned `valkey:valkey`, mode `0640`,
+The script writes `/etc/valkey/valkey-generated.conf`, owned `root:valkey`, mode `0640`,
 included from `/etc/valkey/default.conf` as its final directive. It contains:
 
 | Directive | Value |
