@@ -6,7 +6,8 @@ Amazon Linux 2023 — `slim` and `bundle` variants across x86_64 and arm64.
 **Architecture:** Packer HCL2 defines four `amazon-ebs` sources (variant × architecture) and
 two build blocks that share provisioners. All configuration lives in Ansible roles applied
 through `ansible-local`, so nothing is AWS-specific except AMI packaging. Per-instance
-credentials and memory limits are applied by a systemd unit ordered before `valkey.service`,
+credentials and memory limits are applied by a systemd unit ordered before
+`valkey@default.service`,
 so Valkey never starts unconfigured. A bats suite gates AMI creation; a smoke test against a
 launched instance gates release.
 
@@ -23,7 +24,11 @@ declarative pipeline, AWS CLI v2.
 - Module directory is `/usr/lib64/valkey/modules` on both architectures.
 - Root volume 20 GB gp3, unencrypted. Marketplace does not accept encrypted AMIs.
 - AMI name format: `percona-valkey-<version>-<variant>-<arch>-<YYYYMMDD>`.
-- Default posture: `bind 127.0.0.1 -::1`, `protected-mode yes`, `maxmemory-policy noeviction`.
+- Default posture: `bind 127.0.0.1 -::1`, `protected-mode yes`, `maxmemory-policy noeviction`,
+  all set in `/etc/valkey/default.conf`.
+- Packaging is multi-instance: the unit is the template `valkey@.service`, the canonical
+  instance is `valkey@default`, and its config is `/etc/valkey/default.conf`. There is no
+  `valkey.service` and no `/etc/valkey/valkey.conf`.
 - `maxmemory` is 70% of `MemTotal`, computed at first boot.
 - No host firewall. No baked SSH keys, host keys, OS passwords, or credentials.
 - No assistant or tooling references in any file, comment, or commit message.
@@ -40,10 +45,10 @@ declarative pipeline, AWS CLI v2.
 | `images/Makefile` | Local entry points: lint, unit tests, container tests, build |
 | `images/README.md` | How to build and test the images |
 | `images/ansible/roles/valkey-firstboot/files/valkey-firstboot.sh` | Per-instance credential, memory, and module configuration |
-| `images/ansible/roles/valkey-firstboot/files/valkey-firstboot.service` | Ordering guarantee before `valkey.service` |
+| `images/ansible/roles/valkey-firstboot/files/valkey-firstboot.service` | Ordering guarantee before `valkey@default.service` |
 | `images/ansible/roles/valkey-tuning/files/99-valkey.conf` | sysctl values Valkey requires |
 | `images/ansible/roles/valkey-tuning/files/valkey-thp.service` | Disables transparent huge pages at boot |
-| `images/ansible/roles/valkey-tuning/files/10-limits.conf` | `valkey.service` drop-in raising `LimitNOFILE` |
+| `images/ansible/roles/valkey-tuning/files/10-limits.conf` | `valkey@.service` drop-in raising `LimitNOFILE` |
 | `images/ansible/valkey-ami.yml` | Playbook binding roles in order |
 | `images/ansible/roles/valkey-repo/` | GPG keys, `percona-release`, channel enable |
 | `images/ansible/roles/valkey-install/` | Variant to package set, version assertion |
@@ -324,7 +329,7 @@ write_banner() {
 
   Connect with:  valkey-cli -a '${password}'
 
-  Valkey listens on localhost only. Review /etc/valkey/valkey.conf
+  Valkey listens on localhost only. Review /etc/valkey/default.conf
   before exposing it, and change this password once setup is complete.
 
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -395,8 +400,8 @@ marker file so reboots preserve the generated credentials."
 **Interfaces:**
 - Consumes: `/usr/local/sbin/valkey-firstboot` from Task 1.
 - Produces: units `valkey-firstboot.service` and `valkey-thp.service`, both ordered before
-  `valkey.service`; sysctl file `/etc/sysctl.d/99-valkey.conf`; drop-in
-  `/etc/systemd/system/valkey.service.d/10-limits.conf`. Task 4 installs all four; Task 6
+  `valkey@default.service`; sysctl file `/etc/sysctl.d/99-valkey.conf`; drop-in
+  `/etc/systemd/system/valkey@.service.d/10-limits.conf`. Task 4 installs all four; Task 6
   asserts them.
 
 - [ ] **Step 1: Write the first-boot unit**
@@ -407,7 +412,7 @@ marker file so reboots preserve the generated credentials."
 [Unit]
 Description=Generate per-instance Percona Valkey configuration
 Documentation=https://docs.percona.com/
-Before=valkey.service
+Before=valkey@default.service
 After=local-fs.target
 ConditionPathExists=!/etc/valkey/.firstboot-done
 
@@ -439,7 +444,7 @@ net.core.somaxconn = 1024
 Description=Disable transparent huge pages for Percona Valkey
 DefaultDependencies=no
 After=sysinit.target local-fs.target
-Before=valkey.service
+Before=valkey@default.service
 ConditionPathExists=/sys/kernel/mm/transparent_hugepage/enabled
 
 [Service]
@@ -491,7 +496,7 @@ Expected: exit status 0 with no output.
 git add images/ansible/roles/valkey-firstboot/files/ images/ansible/roles/valkey-tuning/files/
 git commit -m "feat(images): add first-boot unit and kernel tuning
 
-Orders configuration generation and THP disabling ahead of valkey.service
+Orders configuration generation and THP disabling ahead of valkey@default.service
 so the server never starts unconfigured or with transparent huge pages on."
 ```
 
@@ -616,13 +621,11 @@ valkey_variant_packages:
       Installed percona-valkey {{ valkey_installed.stdout }},
       but {{ valkey_version }} was requested from the
       '{{ valkey_repo_channel }}' channel
-
-- name: Ensure the sentinel service is installed but not enabled
-  ansible.builtin.systemd:
-    name: valkey-sentinel.target
-    enabled: false
-  failed_when: false
 ```
+
+No task disables sentinel. The RPM's `%systemd_post` runs `systemctl preset`, which does not
+enable it, so sentinel ships installed and inactive with no action needed. `install.bats`
+asserts that rather than a role enforcing it.
 
 - [ ] **Step 3: Write the playbook**
 
@@ -705,7 +708,7 @@ fails the build when the requested release is not in the chosen channel."
 
 **Interfaces:**
 - Consumes: files from Tasks 1 and 2; `valkey_variant` from Task 3.
-- Produces: an image where `/etc/valkey/valkey.conf` binds to loopback, enables protected
+- Produces: an image where `/etc/valkey/default.conf` binds to loopback, enables protected
   mode, and includes `/etc/valkey/valkey-generated.conf` as its last directive. Task 6
   asserts each of these.
 
@@ -733,7 +736,7 @@ fails the build when the requested release is not in the chosen channel."
 
 - name: Create the valkey service drop-in directory
   ansible.builtin.file:
-    path: /etc/systemd/system/valkey.service.d
+    path: /etc/systemd/system/valkey@.service.d
     state: directory
     owner: root
     group: root
@@ -742,7 +745,7 @@ fails the build when the requested release is not in the chosen channel."
 - name: Deploy the file descriptor limit drop-in
   ansible.builtin.copy:
     src: 10-limits.conf
-    dest: /etc/systemd/system/valkey.service.d/10-limits.conf
+    dest: /etc/systemd/system/valkey@.service.d/10-limits.conf
     owner: root
     group: root
     mode: "0644"
@@ -761,7 +764,7 @@ fails the build when the requested release is not in the chosen channel."
 ```yaml
 ---
 valkey_variant: slim
-valkey_conf: /etc/valkey/valkey.conf
+valkey_conf: /etc/valkey/default.conf
 valkey_generated_conf: /etc/valkey/valkey-generated.conf
 ```
 
@@ -811,7 +814,7 @@ valkey_generated_conf: /etc/valkey/valkey-generated.conf
 
 - name: Create an empty generated configuration
   # valkey-server treats an include of a missing file as fatal. The first-boot
-  # unit fills this in before valkey.service starts, but the file must exist
+  # unit fills this in before valkey@default.service starts, but the file must exist
   # from bake time so the include is always resolvable.
   ansible.builtin.copy:
     content: ""
@@ -822,7 +825,7 @@ valkey_generated_conf: /etc/valkey/valkey-generated.conf
     force: false
 
 - name: Include the generated configuration last
-  # Later directives win in valkey.conf, so this must remain the final line
+  # Later directives win, so this must remain the final line of default.conf
   # for the generated values to take effect.
   ansible.builtin.lineinfile:
     path: "{{ valkey_conf }}"
@@ -830,9 +833,9 @@ valkey_generated_conf: /etc/valkey/valkey-generated.conf
     insertafter: EOF
     state: present
 
-- name: Enable the Valkey service
+- name: Enable the default Valkey instance
   ansible.builtin.systemd:
-    name: valkey.service
+    name: valkey@default.service
     enabled: true
 ```
 
@@ -1082,12 +1085,13 @@ MODULE_DIR=/usr/lib64/valkey/modules
     getent group valkey
 }
 
-@test 'valkey.service is enabled' {
-    systemctl is-enabled valkey.service
+@test 'the default valkey instance is enabled' {
+    systemctl is-enabled valkey@default.service
 }
 
-@test 'the sentinel target is not enabled' {
-    ! systemctl is-enabled valkey-sentinel.target
+@test 'the sentinel instance is not enabled' {
+    [ -f /usr/lib/systemd/system/valkey-sentinel@.service ]
+    ! systemctl is-enabled valkey-sentinel@default.service
 }
 ```
 
@@ -1098,7 +1102,7 @@ MODULE_DIR=/usr/lib64/valkey/modules
 ```bash
 #!/usr/bin/env bats
 
-CONF=/etc/valkey/valkey.conf
+CONF=/etc/valkey/default.conf
 GENERATED=/etc/valkey/valkey-generated.conf
 
 @test 'valkey binds to loopback only' {
@@ -1150,7 +1154,7 @@ GENERATED=/etc/valkey/valkey-generated.conf
 }
 
 @test 'the file descriptor limit drop-in is in place' {
-    grep -qx 'LimitNOFILE=65535' /etc/systemd/system/valkey.service.d/10-limits.conf
+    grep -qx 'LimitNOFILE=65535' /etc/systemd/system/valkey@.service.d/10-limits.conf
 }
 ```
 
@@ -1705,7 +1709,7 @@ PASSWORD_AFTER=$(remote "sudo grep '^requirepass ' /etc/valkey/valkey-generated.
 
 check "the password is unchanged after reboot" test "$PASSWORD" = "$PASSWORD_AFTER"
 
-SERVICE_STATE=$(remote "systemctl is-active valkey.service")
+SERVICE_STATE=$(remote "systemctl is-active valkey@default.service")
 check "the service is running after reboot" test "$SERVICE_STATE" = "active"
 
 echo
@@ -1797,7 +1801,7 @@ Each instance generates its own Valkey password on first boot. It is written to
 the system log, visible with `aws ec2 get-console-output`, and to the message of
 the day shown when logging in over SSH.
 
-Valkey listens on localhost only. Review `/etc/valkey/valkey.conf` and adjust the
+Valkey listens on localhost only. Review `/etc/valkey/default.conf` and adjust the
 security group before exposing the service.
 ```
 
@@ -2100,7 +2104,7 @@ Adds `images/`, producing four AWS Marketplace AMIs for Percona Valkey 9.1.1
 on Amazon Linux 2023: `slim` and `bundle` variants across x86_64 and arm64.
 
 Packages install from the `valkey-91` release channel. Per-instance credentials
-and memory limits are applied by a systemd unit ordered before `valkey.service`,
+and memory limits are applied by a systemd unit ordered before `valkey@default.service`,
 so the server never starts unconfigured. A bats suite gates AMI creation and a
 smoke test against a launched instance gates release.
 

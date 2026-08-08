@@ -77,7 +77,7 @@ write_banner() {
 
   Connect with:  valkey-cli -a '${password}'
 
-  Valkey listens on localhost only. Review /etc/valkey/valkey.conf
+  Valkey listens on localhost only. Review /etc/valkey/default.conf
   before exposing it, and change this password once setup is complete.
 
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

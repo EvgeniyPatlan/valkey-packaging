@@ -1,7 +1,7 @@
 [Unit]
 Description=Generate per-instance Percona Valkey configuration
 Documentation=https://docs.percona.com/
-Before=valkey.service
+Before=valkey@default.service
 After=local-fs.target
 ConditionPathExists=!/etc/valkey/.firstboot-done
 

@@ -52,7 +52,7 @@ with keeping the provisioning logic portable, and it does not fit the Jenkins-dr
 release process.
 
 **systemd ordering rather than cloud-init `per-once`.** The first-boot unit is ordered
-`Before=valkey.service`, so Valkey never starts in an unconfigured state and no restart
+`Before=valkey@default.service`, so Valkey never starts in an unconfigured state and no restart
 is required after configuration is written. The mechanism carries unchanged to platforms
 without cloud-init.
 
@@ -102,13 +102,13 @@ flowchart TD
 
 ### First-boot sequence
 
-`valkey-firstboot.service` is ordered `Before=valkey.service`, `WantedBy=multi-user.target`,
+`valkey-firstboot.service` is ordered `Before=valkey@default.service`, `WantedBy=multi-user.target`,
 and guarded by `ConditionPathExists=!/etc/valkey/.firstboot-done`.
 
 ```mermaid
 flowchart TD
     S["Boot"] --> G{"/etc/valkey/.firstboot-done exists?"}
-    G -->|yes| V["Start valkey.service"]
+    G -->|yes| V["Start valkey@default.service"]
     G -->|no| P1["Generate password"]
     P1 --> P2["Compute maxmemory from MemTotal"]
     P2 --> P3{"variant == bundle?"}
@@ -121,11 +121,11 @@ flowchart TD
 ```
 
 The script writes `/etc/valkey/valkey-generated.conf`, owned `valkey:valkey`, mode `0640`,
-included from the shipped `valkey.conf`. It contains:
+included from `/etc/valkey/default.conf` as its final directive. It contains:
 
 | Directive | Value |
 |---|---|
-| `requirepass` | 32 alphanumeric characters drawn from `/dev/urandom`, avoiding characters that would need quoting in `valkey.conf` |
+| `requirepass` | 32 alphanumeric characters drawn from `/dev/urandom`, avoiding characters that would need quoting in the configuration file |
 | `maxmemory` | 70% of `MemTotal` |
 | `maxmemory-policy` | `noeviction` |
 | `loadmodule` | One line per module object, `bundle` variant only |
@@ -157,15 +157,15 @@ images/
       valkey-repo/
       valkey-install/
       valkey-tuning/
+        files/
+          99-valkey.conf
+          valkey-thp.service
+          10-limits.conf
       valkey-firstboot/
+        files/
+          valkey-firstboot.sh
+          valkey-firstboot.service
       cloud-cleanup/
-  files/
-    firstboot/
-      valkey-firstboot.sh
-      valkey-firstboot.service
-    tuning/
-      99-valkey.conf
-      valkey-thp.service
   test/
     bats/
       install.bats
@@ -212,16 +212,24 @@ silently producing an image at the wrong version.
 
 ## Baseline configuration baked into the image
 
+The packaging is multi-instance. The unit is a template, `valkey@.service`, and the
+canonical instance is `valkey@default`, which reads `/etc/valkey/default.conf`. That file
+includes `/etc/valkey/includes/valkey.defaults.conf` and then overrides it. There is no
+`valkey.service` and no `/etc/valkey/valkey.conf`.
+
 | Setting | Value | Reason |
 |---|---|---|
-| `bind` | `127.0.0.1 -::1` | Nothing reachable until the user opts in |
-| `protected-mode` | `yes` | Defence in depth alongside `bind` |
-| `valkey.service` | Enabled | Service starts on boot, after first-boot configuration |
-| Sentinel service | Installed, disabled | Available for HA users without adding packages |
+| `bind` | `127.0.0.1 -::1` in `default.conf` | Nothing reachable until the user opts in |
+| `protected-mode` | `yes` in `default.conf` | Defence in depth alongside `bind` |
+| `valkey@default.service` | Enabled | Service starts on boot, after first-boot configuration |
+| `valkey-sentinel@default` | Installed, not enabled | Available for HA users without adding packages |
 | `vm.overcommit_memory` | `1` | Required for reliable background saves |
 | Transparent huge pages | Disabled via unit | Removes latency spikes and the startup warning |
-| `net.core.somaxconn` | `1024` | Removes the startup warning under load |
-| `LimitNOFILE` | `65535` | Supports realistic connection counts |
+| `net.core.somaxconn` | `1024` | Raises the packaged default of 512 |
+| `LimitNOFILE` | `65535` | Raises the unit default of 10240 |
+
+The package already ships `/etc/sysctl.d/00-valkey.conf` setting `vm.overcommit_memory=1`
+and `net.core.somaxconn=512`. The image adds `99-valkey.conf`, which sorts later and wins.
 
 ## Security and Marketplace requirements
 
@@ -246,12 +254,12 @@ Runs inside the build instance before the snapshot. Failure blocks AMI creation.
 - Expected package set installed for the variant
 - Installed Valkey version matches the requested version
 - `valkey` user and group exist
-- `valkey.service` present and enabled; sentinel unit present and disabled
+- `valkey@default.service` present and enabled; sentinel instance present and not enabled
 - `bundle` only: all four module objects present in the module directory
 
 **config.bats**
 - `bind` is loopback only and `protected-mode` is `yes`
-- `valkey-generated.conf` is included by `valkey.conf`
+- `valkey-generated.conf` is included by `default.conf`
 - First-boot unit installed and enabled, and the completion marker is absent
 - Tuning files present with expected values
 

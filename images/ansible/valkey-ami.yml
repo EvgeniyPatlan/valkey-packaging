@@ -1,0 +1,8 @@
+---
+- name: Build the Percona Valkey image
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - valkey-repo
+    - valkey-install
