@@ -1,0 +1,14 @@
+[Unit]
+Description=Disable transparent huge pages for Percona Valkey
+DefaultDependencies=no
+After=sysinit.target local-fs.target
+Before=valkey.service
+ConditionPathExists=/sys/kernel/mm/transparent_hugepage/enabled
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'echo never > /sys/kernel/mm/transparent_hugepage/enabled'
+
+[Install]
+WantedBy=basic.target

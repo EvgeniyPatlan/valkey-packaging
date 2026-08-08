@@ -435,6 +435,7 @@ Description=Disable transparent huge pages for Percona Valkey
 DefaultDependencies=no
 After=sysinit.target local-fs.target
 Before=valkey.service
+ConditionPathExists=/sys/kernel/mm/transparent_hugepage/enabled
 
 [Service]
 Type=oneshot
@@ -460,8 +461,24 @@ cd images && systemd-analyze verify \
   files/firstboot/valkey-firstboot.service \
   files/tuning/valkey-thp.service
 ```
-Expected: no errors about syntax or unknown directives. Warnings about
-`valkey.service` not existing on the workstation are expected and can be ignored.
+Expected: no errors about syntax or unknown directives. One message is expected on a
+workstation — `Command /usr/local/sbin/valkey-firstboot is not executable` — because the
+script is only installed onto the image, by the role in Task 4.
+
+To confirm that message is the only outstanding issue, verify against a copy whose
+`ExecStart` points at the script in the working tree:
+
+```bash
+T=$(mktemp -d)
+cp files/firstboot/valkey-firstboot.service files/tuning/valkey-thp.service "$T/"
+mkdir -p "$T/fakeroot/usr/local/sbin"
+install -m0755 files/firstboot/valkey-firstboot.sh "$T/fakeroot/usr/local/sbin/valkey-firstboot"
+sed -i "s|ExecStart=/usr/local/sbin/valkey-firstboot|ExecStart=$T/fakeroot/usr/local/sbin/valkey-firstboot|" \
+    "$T/valkey-firstboot.service"
+systemd-analyze verify "$T/valkey-firstboot.service" "$T/valkey-thp.service"
+rm -rf "$T"
+```
+Expected: exit status 0 with no output.
 
 - [ ] **Step 4: Commit**
 
