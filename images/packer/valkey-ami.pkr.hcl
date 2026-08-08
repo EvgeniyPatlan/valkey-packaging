@@ -14,13 +14,13 @@ packer {
 }
 
 locals {
-  build_date = formatdate("YYYYMMDD", timestamp())
+  build_date = formatdate("YYYYMMDD-hhmm", timestamp())
 
   common_tags = {
     Product           = "Percona Valkey"
     ValkeyVersion     = var.valkey_version
     RepoChannel       = var.repo_channel
-    BuildDate         = formatdate("YYYYMMDD", timestamp())
+    BuildDate         = formatdate("YYYYMMDD-hhmm", timestamp())
     "iit-billing-tag" = var.billing_tag
   }
 

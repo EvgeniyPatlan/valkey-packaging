@@ -23,7 +23,8 @@ declarative pipeline, AWS CLI v2.
 - Variants: `slim` installs `percona-valkey`; `bundle` installs `percona-valkey-bundle`.
 - Module directory is `/usr/lib64/valkey/modules` on both architectures.
 - Root volume 20 GB gp3, unencrypted. Marketplace does not accept encrypted AMIs.
-- AMI name format: `percona-valkey-<version>-<variant>-<arch>-<YYYYMMDD>`.
+- AMI name format: `percona-valkey-<version>-<variant>-<arch>-<YYYYMMDD-hhmm>`. The time
+  is required: AWS rejects duplicate AMI names, so date alone breaks same-day rebuilds.
 - Default posture: `bind 127.0.0.1 -::1`, `protected-mode yes`, `maxmemory-policy noeviction`,
   all set in `/etc/valkey/default.conf`.
 - Packaging is multi-instance: the unit is the template `valkey@.service`, the canonical

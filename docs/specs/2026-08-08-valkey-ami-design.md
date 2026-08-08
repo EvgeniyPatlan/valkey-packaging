@@ -90,7 +90,7 @@ flowchart TD
     A4["valkey-firstboot<br/>unit + script, bind localhost, protected-mode"]
     A5["cloud-cleanup<br/>host keys, authorized_keys, logs, machine-id"]
     B["bats gate<br/>failure blocks AMI creation"]
-    AMI["AMI<br/>percona-valkey-9.1.1-VARIANT-ARCH-YYYYMMDD<br/>20 GB gp3, unencrypted"]
+    AMI["AMI<br/>percona-valkey-9.1.1-VARIANT-ARCH-YYYYMMDD-hhmm<br/>20 GB gp3, unencrypted"]
     C["Copy to region list"]
     S["Smoke test<br/>launch, verify, terminate"]
     M["Manual Marketplace submission"]
@@ -294,9 +294,13 @@ leaves the AMI unpublished.
 
 ## Naming and versioning
 
-AMI name: `percona-valkey-<valkey_version>-<variant>-<arch>-<YYYYMMDD>`
+AMI name: `percona-valkey-<valkey_version>-<variant>-<arch>-<YYYYMMDD-hhmm>`
 
-Example: `percona-valkey-9.1.1-bundle-arm64-20260808`
+Example: `percona-valkey-9.1.1-bundle-arm64-20260808-1145`
+
+The time is part of the name because AWS rejects a duplicate AMI name, so a second
+build of the same version on the same day would otherwise fail. This matches the
+convention used by the other Percona image builds.
 
 Variant, architecture, Valkey version, channel, and build identifier are also applied as AMI
 tags so images can be filtered without parsing names.
