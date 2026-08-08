@@ -29,6 +29,13 @@ case "$VARIANT" in
     *) echo "variant must be slim or bundle, got '${VARIANT}'" >&2; exit 2 ;;
 esac
 
+for tool in aws ssh timeout; do
+    command -v "$tool" >/dev/null 2>&1 || {
+        echo "required tool '${tool}' is not installed" >&2
+        exit 2
+    }
+done
+
 : "${SMOKE_SUBNET_ID:?SMOKE_SUBNET_ID must be set}"
 : "${SMOKE_SECURITY_GROUP_ID:?SMOKE_SECURITY_GROUP_ID must be set}"
 : "${SMOKE_KEY_NAME:?SMOKE_KEY_NAME must be set}"
