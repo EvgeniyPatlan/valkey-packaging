@@ -14,7 +14,7 @@ deps:
 
 lint:
 	shellcheck ansible/roles/valkey-firstboot/files/valkey-firstboot.sh \
-	  test/smoke/smoke.sh test/container/run.sh
+	  test/smoke/smoke.sh test/container/run.sh scripts/cleanup-orphans.sh
 	$(PACKER) fmt -check -diff packer/
 	ansible-lint ansible/
 
