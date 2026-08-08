@@ -53,8 +53,9 @@ source of truth for those tasks; the steps below record how they were built and 
 | 5 cleanup role | done | playbook clean, 36 tasks |
 | 6 bats suites | done | 29 of 29 on both variants |
 | 7 Packer template and pipeline | done | `packer validate`, all four `-only` selectors resolve |
-| 8 smoke test and first build | pending | needs AWS credentials |
-| 9 remaining three images | pending | needs AWS credentials |
+| 8 first build | done | built in Jenkins; bats gate passed inside the build |
+| 8a smoke test run | pending | needs an EC2 key pair and ssh credential |
+| 9 remaining three images | pending | full matrix with region copy |
 | 10 Jenkins pipeline run | pending | needs a Jenkins controller |
 | 11 Marketplace preparation | pending | needs a seller account |
 
