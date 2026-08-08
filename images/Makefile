@@ -1,8 +1,16 @@
 SHELL := /bin/bash
-PACKER ?= packer
+PACKER ?= ~/bin/packer
+PACKER_VERSION ?= 1.11.2
 VARIANT ?= slim
 
-.PHONY: lint unit container build clean
+.PHONY: deps lint unit container validate build clean
+
+deps:
+	mkdir -p ~/bin .cache
+	curl -fsSL https://releases.hashicorp.com/packer/$(PACKER_VERSION)/packer_$(PACKER_VERSION)_linux_amd64.zip \
+	  -o .cache/packer.zip
+	unzip -o .cache/packer.zip -d ~/bin
+	$(PACKER) init packer/
 
 lint:
 	shellcheck ansible/roles/valkey-firstboot/files/valkey-firstboot.sh \
@@ -16,8 +24,11 @@ unit:
 container:
 	test/container/run.sh $(VARIANT)
 
+validate:
+	$(PACKER) validate -var-file=packer/release.pkvars.hcl packer/
+
 build:
 	$(PACKER) build -var-file=packer/release.pkvars.hcl packer/
 
 clean:
-	rm -rf .packer_cache
+	rm -rf .cache build-*.log ami-*.txt

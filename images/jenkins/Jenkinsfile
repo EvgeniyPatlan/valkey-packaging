@@ -1,0 +1,160 @@
+pipeline {
+    agent {
+        label 'min-ol-9-x64'
+    }
+
+    parameters {
+        string(
+            defaultValue: '9.1.1',
+            description: 'Valkey version to install',
+            name: 'VALKEY_VERSION')
+        choice(
+            choices: ['release', 'testing', 'experimental'],
+            description: 'Percona repository channel',
+            name: 'REPO_CHANNEL')
+        booleanParam(
+            defaultValue: true,
+            description: 'Copy the resulting AMIs to the region list',
+            name: 'COPY_REGIONS')
+        booleanParam(
+            defaultValue: true,
+            description: 'Run the post-launch smoke test for each image',
+            name: 'RUN_SMOKE')
+    }
+
+    options {
+        skipDefaultCheckout()
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        AWS_DEFAULT_REGION = 'us-east-1'
+    }
+
+    stages {
+        stage('Prepare') {
+            steps {
+                slackSend botUser: true, channel: '#releases-ci', color: '#FFFF00',
+                    message: "VALKEY-AMI: build started - ${BUILD_URL}"
+                git poll: true, branch: 'main',
+                    url: 'https://github.com/EvgeniyPatlan/valkey-packaging.git'
+                sh '''
+                    sudo yum -y install unzip make shellcheck
+                    cd images
+                    make deps
+                '''
+            }
+        }
+
+        stage('Checks') {
+            steps {
+                sh '''
+                    cd images
+                    make validate
+                '''
+            }
+        }
+
+        stage('Build') {
+            matrix {
+                axes {
+                    axis {
+                        name 'VARIANT'
+                        values 'slim', 'bundle'
+                    }
+                    axis {
+                        name 'ARCH'
+                        values 'x86_64', 'arm64'
+                    }
+                }
+
+                stages {
+                    stage('Packer build') {
+                        steps {
+                            withCredentials([[
+                                $class: 'AmazonWebServicesCredentialsBinding',
+                                accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                                credentialsId: 're-cd-aws',
+                                secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                                script {
+                                    // An empty region list suppresses copying; omitting
+                                    // the flag keeps the list from release.pkvars.hcl.
+                                    def noCopy = params.COPY_REGIONS ? '' : "-var 'ami_regions=[]'"
+                                    sh """
+                                        set -o pipefail
+                                        cd images
+                                        ~/bin/packer build -color=false \
+                                          -only='${VARIANT}.amazon-ebs.${VARIANT}_${ARCH}' \
+                                          -var-file=packer/release.pkvars.hcl \
+                                          -var valkey_version=${params.VALKEY_VERSION} \
+                                          -var repo_channel=${params.REPO_CHANNEL} \
+                                          ${noCopy} \
+                                          packer/ | tee build-${VARIANT}-${ARCH}.log
+                                    """
+                                }
+                            }
+                            sh """
+                                cd images
+                                tail build-${VARIANT}-${ARCH}.log \
+                                  | grep ${AWS_DEFAULT_REGION} \
+                                  | cut -d ' ' -f 2 > ami-${VARIANT}-${ARCH}.txt
+                                cat ami-${VARIANT}-${ARCH}.txt
+                            """
+                            stash includes: "images/ami-${VARIANT}-${ARCH}.txt",
+                                  name: "ami-${VARIANT}-${ARCH}"
+                            archiveArtifacts "images/ami-${VARIANT}-${ARCH}.txt"
+                        }
+                    }
+
+                    stage('Smoke test') {
+                        when {
+                            expression { params.RUN_SMOKE }
+                        }
+                        steps {
+                            withCredentials([
+                                [$class: 'AmazonWebServicesCredentialsBinding',
+                                 accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                                 credentialsId: 're-cd-aws',
+                                 secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'],
+                                sshUserPrivateKey(
+                                    credentialsId: 'percona-images-ssh',
+                                    keyFileVariable: 'SMOKE_KEY_FILE')]) {
+                                sh """
+                                    cd images
+                                    export SMOKE_SUBNET_ID=subnet-ee06e8e1
+                                    export SMOKE_SECURITY_GROUP_ID=sg-688c2b1c
+                                    export SMOKE_KEY_NAME=percona-images
+                                    if [ "${ARCH}" = arm64 ]; then
+                                        instance_type=t4g.medium
+                                    else
+                                        instance_type=t3.medium
+                                    fi
+                                    test/smoke/smoke.sh \
+                                      "\$(cat ami-${VARIANT}-${ARCH}.txt)" \
+                                      ${AWS_DEFAULT_REGION} \
+                                      ${VARIANT} \
+                                      "\${instance_type}"
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'images/build-*.log', allowEmptyArchive: true
+            deleteDir()
+        }
+        success {
+            slackSend botUser: true, channel: '#releases-ci', color: '#00FF00',
+                message: "VALKEY-AMI: build finished - ${params.VALKEY_VERSION} (${params.REPO_CHANNEL})"
+        }
+        failure {
+            slackSend botUser: true, channel: '#releases-ci', color: '#FF0000',
+                message: "VALKEY-AMI: build failed - ${BUILD_URL}"
+        }
+    }
+}
