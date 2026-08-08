@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-SCRIPT="${BATS_TEST_DIRNAME}/../../files/firstboot/valkey-firstboot.sh"
+SCRIPT="${BATS_TEST_DIRNAME}/../../ansible/roles/valkey-firstboot/files/valkey-firstboot.sh"
 
 setup() {
     export VALKEY_FIRSTBOOT_ROOT="$BATS_TEST_TMPDIR/root"

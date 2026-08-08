@@ -5,7 +5,8 @@ VARIANT ?= slim
 .PHONY: lint unit container build clean
 
 lint:
-	shellcheck files/firstboot/valkey-firstboot.sh test/smoke/smoke.sh test/container/run.sh
+	shellcheck ansible/roles/valkey-firstboot/files/valkey-firstboot.sh \
+	  test/smoke/smoke.sh test/container/run.sh
 	$(PACKER) fmt -check -diff packer/
 	ansible-lint ansible/
 

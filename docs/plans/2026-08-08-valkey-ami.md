@@ -39,11 +39,11 @@ declarative pipeline, AWS CLI v2.
 |---|---|
 | `images/Makefile` | Local entry points: lint, unit tests, container tests, build |
 | `images/README.md` | How to build and test the images |
-| `images/files/firstboot/valkey-firstboot.sh` | Per-instance credential, memory, and module configuration |
-| `images/files/firstboot/valkey-firstboot.service` | Ordering guarantee before `valkey.service` |
-| `images/files/tuning/99-valkey.conf` | sysctl values Valkey requires |
-| `images/files/tuning/valkey-thp.service` | Disables transparent huge pages at boot |
-| `images/files/tuning/10-limits.conf` | `valkey.service` drop-in raising `LimitNOFILE` |
+| `images/ansible/roles/valkey-firstboot/files/valkey-firstboot.sh` | Per-instance credential, memory, and module configuration |
+| `images/ansible/roles/valkey-firstboot/files/valkey-firstboot.service` | Ordering guarantee before `valkey.service` |
+| `images/ansible/roles/valkey-tuning/files/99-valkey.conf` | sysctl values Valkey requires |
+| `images/ansible/roles/valkey-tuning/files/valkey-thp.service` | Disables transparent huge pages at boot |
+| `images/ansible/roles/valkey-tuning/files/10-limits.conf` | `valkey.service` drop-in raising `LimitNOFILE` |
 | `images/ansible/valkey-ami.yml` | Playbook binding roles in order |
 | `images/ansible/roles/valkey-repo/` | GPG keys, `percona-release`, channel enable |
 | `images/ansible/roles/valkey-install/` | Variant to package set, version assertion |
@@ -66,6 +66,10 @@ The first-boot script is the highest-risk unit and is written to be testable wit
 every path it touches is overridable by environment variable, so its bats suite runs against
 a temporary directory on any workstation.
 
+Static files live in the `files/` directory of the role that deploys them. Packer's
+`ansible-local` provisioner uploads only `playbook_dir`, so anything outside
+`images/ansible/` would never reach the build instance.
+
 ---
 
 ## Task 1: Scaffolding and the first-boot script
@@ -76,7 +80,7 @@ fully covered before anything else exists.
 
 **Files:**
 - Create: `images/Makefile`
-- Create: `images/files/firstboot/valkey-firstboot.sh`
+- Create: `images/ansible/roles/valkey-firstboot/files/valkey-firstboot.sh`
 - Test: `images/test/unit/firstboot.bats`
 
 **Interfaces:**
@@ -92,7 +96,7 @@ fully covered before anything else exists.
 - [ ] **Step 1: Create the directory tree and Makefile**
 
 ```bash
-mkdir -p images/{files/{firstboot,tuning},ansible/roles,packer,test/{unit,bats,smoke,container},jenkins}
+mkdir -p images/{ansible/roles/{valkey-firstboot,valkey-tuning}/files,packer,test/{unit,bats,smoke,container},jenkins}
 ```
 
 `images/Makefile`:
@@ -105,7 +109,8 @@ VARIANT ?= slim
 .PHONY: lint unit container build clean
 
 lint:
-	shellcheck files/firstboot/valkey-firstboot.sh test/smoke/smoke.sh test/container/run.sh
+	shellcheck ansible/roles/valkey-firstboot/files/valkey-firstboot.sh \
+	  test/smoke/smoke.sh test/container/run.sh
 	$(PACKER) fmt -check -diff packer/
 	ansible-lint ansible/
 
@@ -129,7 +134,7 @@ clean:
 ```bash
 #!/usr/bin/env bats
 
-SCRIPT="${BATS_TEST_DIRNAME}/../../files/firstboot/valkey-firstboot.sh"
+SCRIPT="${BATS_TEST_DIRNAME}/../../ansible/roles/valkey-firstboot/files/valkey-firstboot.sh"
 
 setup() {
     export VALKEY_FIRSTBOOT_ROOT="$BATS_TEST_TMPDIR/root"
@@ -237,7 +242,7 @@ Expected: every test FAILS — the script does not exist yet.
 
 - [ ] **Step 4: Write the script**
 
-`images/files/firstboot/valkey-firstboot.sh`:
+`images/ansible/roles/valkey-firstboot/files/valkey-firstboot.sh`:
 
 ```bash
 #!/bin/bash
@@ -363,13 +368,13 @@ Expected: all 12 tests PASS.
 
 - [ ] **Step 6: Lint**
 
-Run: `cd images && shellcheck files/firstboot/valkey-firstboot.sh`
+Run: `cd images && shellcheck ansible/roles/valkey-firstboot/files/valkey-firstboot.sh`
 Expected: no output.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add images/Makefile images/files/firstboot/valkey-firstboot.sh images/test/unit/firstboot.bats
+git add images/Makefile images/ansible/roles/valkey-firstboot/files/valkey-firstboot.sh images/test/unit/firstboot.bats
 git commit -m "feat(images): add first-boot configuration script
 
 Generates a per-instance password, sizes maxmemory from detected memory,
@@ -382,10 +387,10 @@ marker file so reboots preserve the generated credentials."
 ## Task 2: systemd units and tuning files
 
 **Files:**
-- Create: `images/files/firstboot/valkey-firstboot.service`
-- Create: `images/files/tuning/99-valkey.conf`
-- Create: `images/files/tuning/valkey-thp.service`
-- Create: `images/files/tuning/10-limits.conf`
+- Create: `images/ansible/roles/valkey-firstboot/files/valkey-firstboot.service`
+- Create: `images/ansible/roles/valkey-tuning/files/99-valkey.conf`
+- Create: `images/ansible/roles/valkey-tuning/files/valkey-thp.service`
+- Create: `images/ansible/roles/valkey-tuning/files/10-limits.conf`
 
 **Interfaces:**
 - Consumes: `/usr/local/sbin/valkey-firstboot` from Task 1.
@@ -396,7 +401,7 @@ marker file so reboots preserve the generated credentials."
 
 - [ ] **Step 1: Write the first-boot unit**
 
-`images/files/firstboot/valkey-firstboot.service`:
+`images/ansible/roles/valkey-firstboot/files/valkey-firstboot.service`:
 
 ```ini
 [Unit]
@@ -420,14 +425,14 @@ The `VALKEY_VARIANT` value is rewritten per variant by the role in Task 4.
 
 - [ ] **Step 2: Write the tuning files**
 
-`images/files/tuning/99-valkey.conf`:
+`images/ansible/roles/valkey-tuning/files/99-valkey.conf`:
 
 ```
 vm.overcommit_memory = 1
 net.core.somaxconn = 1024
 ```
 
-`images/files/tuning/valkey-thp.service`:
+`images/ansible/roles/valkey-tuning/files/valkey-thp.service`:
 
 ```ini
 [Unit]
@@ -446,7 +451,7 @@ ExecStart=/bin/sh -c 'echo never > /sys/kernel/mm/transparent_hugepage/enabled'
 WantedBy=basic.target
 ```
 
-`images/files/tuning/10-limits.conf`:
+`images/ansible/roles/valkey-tuning/files/10-limits.conf`:
 
 ```ini
 [Service]
@@ -458,8 +463,8 @@ LimitNOFILE=65535
 Run:
 ```bash
 cd images && systemd-analyze verify \
-  files/firstboot/valkey-firstboot.service \
-  files/tuning/valkey-thp.service
+  ansible/roles/valkey-firstboot/files/valkey-firstboot.service \
+  ansible/roles/valkey-tuning/files/valkey-thp.service
 ```
 Expected: no errors about syntax or unknown directives. One message is expected on a
 workstation — `Command /usr/local/sbin/valkey-firstboot is not executable` — because the
@@ -470,9 +475,9 @@ To confirm that message is the only outstanding issue, verify against a copy who
 
 ```bash
 T=$(mktemp -d)
-cp files/firstboot/valkey-firstboot.service files/tuning/valkey-thp.service "$T/"
+cp ansible/roles/valkey-firstboot/files/valkey-firstboot.service ansible/roles/valkey-tuning/files/valkey-thp.service "$T/"
 mkdir -p "$T/fakeroot/usr/local/sbin"
-install -m0755 files/firstboot/valkey-firstboot.sh "$T/fakeroot/usr/local/sbin/valkey-firstboot"
+install -m0755 ansible/roles/valkey-firstboot/files/valkey-firstboot.sh "$T/fakeroot/usr/local/sbin/valkey-firstboot"
 sed -i "s|ExecStart=/usr/local/sbin/valkey-firstboot|ExecStart=$T/fakeroot/usr/local/sbin/valkey-firstboot|" \
     "$T/valkey-firstboot.service"
 systemd-analyze verify "$T/valkey-firstboot.service" "$T/valkey-thp.service"
@@ -483,7 +488,7 @@ Expected: exit status 0 with no output.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add images/files/firstboot/valkey-firstboot.service images/files/tuning/
+git add images/ansible/roles/valkey-firstboot/files/ images/ansible/roles/valkey-tuning/files/
 git commit -m "feat(images): add first-boot unit and kernel tuning
 
 Orders configuration generation and THP disabling ahead of valkey.service
@@ -712,7 +717,7 @@ fails the build when the requested release is not in the chosen channel."
 ---
 - name: Deploy the Valkey sysctl settings
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../files/tuning/99-valkey.conf"
+    src: 99-valkey.conf
     dest: /etc/sysctl.d/99-valkey.conf
     owner: root
     group: root
@@ -720,7 +725,7 @@ fails the build when the requested release is not in the chosen channel."
 
 - name: Deploy the transparent huge pages unit
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../files/tuning/valkey-thp.service"
+    src: valkey-thp.service
     dest: /etc/systemd/system/valkey-thp.service
     owner: root
     group: root
@@ -736,7 +741,7 @@ fails the build when the requested release is not in the chosen channel."
 
 - name: Deploy the file descriptor limit drop-in
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../files/tuning/10-limits.conf"
+    src: 10-limits.conf
     dest: /etc/systemd/system/valkey.service.d/10-limits.conf
     owner: root
     group: root
@@ -766,7 +771,7 @@ valkey_generated_conf: /etc/valkey/valkey-generated.conf
 ---
 - name: Install the first-boot script
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../files/firstboot/valkey-firstboot.sh"
+    src: valkey-firstboot.sh
     dest: /usr/local/sbin/valkey-firstboot
     owner: root
     group: root
@@ -774,7 +779,7 @@ valkey_generated_conf: /etc/valkey/valkey-generated.conf
 
 - name: Install the first-boot unit
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../files/firstboot/valkey-firstboot.service"
+    src: valkey-firstboot.service
     dest: /etc/systemd/system/valkey-firstboot.service
     owner: root
     group: root
