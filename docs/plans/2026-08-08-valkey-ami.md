@@ -101,7 +101,7 @@ image actually do:
 | `images/test/bats/hardening.bats` | Bake-time security assertions |
 | `images/test/smoke/smoke.sh` | Post-launch verification against a live instance |
 | `images/test/container/run.sh` | Applies the playbook in a systemd-enabled AL2023 container |
-| `images/jenkins/Jenkinsfile` | Build matrix, region copy, smoke stage |
+| `rel/jenkins/valkey-ami.groovy` | Build matrix, region copy, smoke stage |
 
 The first-boot script is the highest-risk unit and is written to be testable without AWS:
 every path it touches is overridable by environment variable, so its bats suite runs against
@@ -1972,7 +1972,8 @@ git commit -m "docs(images): record the first full build matrix results"
 ## Task 10: Jenkins pipeline
 
 **Files:**
-- Create: `images/jenkins/Jenkinsfile`
+- Create: `rel/jenkins/valkey-ami.groovy` and `rel/jenkins/valkey-ami.yml` in
+  `Percona-Lab/jenkins-pipelines` on the `hetzner` branch
 
 **Interfaces:**
 - Consumes: everything above.
@@ -1981,7 +1982,8 @@ git commit -m "docs(images): record the first full build matrix results"
 
 - [x] **Step 1: Write the pipeline**
 
-Implemented at `images/jenkins/Jenkinsfile`. It follows the conventions of the existing
+Implemented as a Job Builder pair in `Percona-Lab/jenkins-pipelines` on the `hetzner`
+branch: `rel/jenkins/valkey-ami.groovy` and `rel/jenkins/valkey-ami.yml`. It follows the conventions of the existing
 Percona AMI job (`Percona-Lab/jenkins-pipelines`, `ps/jenkins/ps80-ami.groovy`):
 
 | Convention | Value |
@@ -2002,10 +2004,16 @@ per-image smoke stage gated on the `RUN_SMOKE` parameter.
 
 Run the Jenkins linter against the controller:
 ```bash
-curl -X POST -F "jenkinsfile=<images/jenkins/Jenkinsfile" \
+curl -X POST -F "jenkinsfile=<rel/jenkins/valkey-ami.groovy" \
   "${JENKINS_URL}/pipeline-model-converter/validate"
 ```
 Expected: `Jenkinsfile successfully validated.`
+
+The job definition is applied with Job Builder:
+
+```bash
+jenkins-jobs update rel/jenkins/valkey-ami.yml
+```
 
 - [ ] **Step 3: Run the pipeline once end to end**
 
@@ -2015,7 +2023,7 @@ archived.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add images/jenkins/Jenkinsfile
+git add rel/jenkins/valkey-ami.groovy rel/jenkins/valkey-ami.yml
 git commit -m "ci(images): add image build pipeline
 
 Matrix over variant and architecture with linting and unit tests as entry
