@@ -38,6 +38,42 @@ declarative pipeline, AWS CLI v2.
 
 ---
 
+## Implementation status
+
+Tasks 1 through 7 are implemented on `feat/valkey-ami`. The committed code is the
+source of truth for those tasks; the steps below record how they were built and why.
+
+| Task | State | Verified by |
+|---|---|---|
+| 1 first-boot script | done | 12 unit tests, no AWS required |
+| 2 systemd units and tuning | done | `systemd-analyze verify` |
+| 3 repo and install roles | done | both variants in an AL2023 container, `release` channel |
+| 4 tuning and first-boot roles | done | boot simulation in a systemd container |
+| 5 cleanup role | done | playbook clean, 36 tasks |
+| 6 bats suites | done | 29 of 29 on both variants |
+| 7 Packer template and pipeline | done | `packer validate`, all four `-only` selectors resolve |
+| 8 smoke test and first build | pending | needs AWS credentials |
+| 9 remaining three images | pending | needs AWS credentials |
+| 10 Jenkins pipeline run | pending | needs a Jenkins controller |
+| 11 Marketplace preparation | pending | needs a seller account |
+
+Divergences from the original plan, all driven by what the packaging and the base
+image actually do:
+
+- Static files live in each role's `files/` directory, because `ansible-local`
+  uploads only `playbook_dir`.
+- The service is `valkey@default.service` and the config is `/etc/valkey/default.conf`.
+  There is no `valkey.service` and no `/etc/valkey/valkey.conf`.
+- bats is installed from the pinned upstream tarball into `/opt/bats`; Amazon Linux
+  2023 has no bats package. It and `ansible-core` are removed before the snapshot.
+- Build network identifiers are defaults on the variable declarations rather than an
+  auto-loaded vars file, which did not resolve reliably across Packer versions. The
+  values are the subnet and security group the existing Percona AMI builds use.
+- The password is drawn from `/dev/urandom` rather than `openssl`, removing a
+  dependency from the boot path.
+
+---
+
 ## File Structure
 
 | Path | Responsibility |
@@ -57,14 +93,14 @@ declarative pipeline, AWS CLI v2.
 | `images/ansible/roles/cloud-cleanup/` | Strips identity, secrets, and logs before bake |
 | `images/packer/variables.pkr.hcl` | Variable declarations and validation |
 | `images/packer/valkey-ami.pkr.hcl` | Four sources, two builds, provisioners, region copy |
-| `images/packer/build-vpc.auto.pkvars.hcl` | Build VPC, subnet, security group IDs |
+| `images/packer/release.pkvars.hcl` | Version, channel, and region list |
 | `images/packer/release.pkvars.hcl` | Version, channel, region list |
 | `images/test/unit/firstboot.bats` | Unit tests for the first-boot script, run locally |
 | `images/test/bats/install.bats` | Bake-time package and service assertions |
 | `images/test/bats/config.bats` | Bake-time configuration assertions |
 | `images/test/bats/hardening.bats` | Bake-time security assertions |
 | `images/test/smoke/smoke.sh` | Post-launch verification against a live instance |
-| `images/test/container/run.sh` | Applies the playbook in an AL2023 container |
+| `images/test/container/run.sh` | Applies the playbook in a systemd-enabled AL2023 container |
 | `images/jenkins/Jenkinsfile` | Build matrix, region copy, smoke stage |
 
 The first-boot script is the highest-risk unit and is written to be testable without AWS:
@@ -1230,7 +1266,6 @@ configuration, and the hardening requirements the Marketplace scan checks."
 **Files:**
 - Create: `images/packer/variables.pkr.hcl`
 - Create: `images/packer/valkey-ami.pkr.hcl`
-- Create: `images/packer/build-vpc.auto.pkvars.hcl`
 - Create: `images/packer/release.pkvars.hcl`
 
 **Interfaces:**
@@ -1572,16 +1607,14 @@ the post-launch smoke test in Task 8 rather than by `hardening.bats`.
 
 - [ ] **Step 3: Write the variable files**
 
-`images/packer/build-vpc.auto.pkvars.hcl`:
+Build network identifiers are defaults on the `subnet_id` and `security_group_id`
+variables in `variables.pkr.hcl`, set to the subnet and security group the existing
+Percona AMI builds use. Packer derives the VPC from the subnet, so no `vpc_id` is
+needed. Override with `-var` or `-var-file` to build in another account.
 
-```hcl
-# Build network for the Percona image pipeline. Override with -var-file when
-# building in another account. These are the only environment-specific values
-# in the repository.
-vpc_id            = "vpc-REPLACE"
-subnet_id         = "subnet-REPLACE"
-security_group_id = "sg-REPLACE"
-```
+An auto-loaded `*.auto.pkvars.hcl` file was tried first and rejected: Packer 1.8.5
+did not load it when the template was given as a directory, producing an unset
+variable error. Defaults resolve identically on every version.
 
 `images/packer/release.pkvars.hcl`:
 
@@ -1604,8 +1637,6 @@ ami_regions = [
 ]
 ```
 
-Replace the three `REPLACE` values with the real build VPC identifiers before the first
-build. They are the only values in the repository that must be filled in by hand.
 
 - [ ] **Step 4: Initialize and validate**
 
@@ -1826,8 +1857,9 @@ each on x86_64 and arm64, all based on Amazon Linux 2023.
 Packer 1.9 or newer, Ansible, bats, shellcheck, and AWS credentials with
 permission to launch instances, create AMIs, and copy them between regions.
 
-Set the build network identifiers in `packer/build-vpc.auto.pkvars.hcl` before
-the first build.
+The build network defaults to the subnet and security group shared with the
+other Percona AMI builds. Override `subnet_id` and `security_group_id` to build
+in a different account.
 
 ## Local checks
 
@@ -1947,126 +1979,24 @@ git commit -m "docs(images): record the first full build matrix results"
 - Produces: a parameterized pipeline building the matrix, copying to regions, and running
   the smoke test per image.
 
-- [ ] **Step 1: Write the pipeline**
+- [x] **Step 1: Write the pipeline**
 
-`images/jenkins/Jenkinsfile`:
+Implemented at `images/jenkins/Jenkinsfile`. It follows the conventions of the existing
+Percona AMI job (`Percona-Lab/jenkins-pipelines`, `ps/jenkins/ps80-ami.groovy`):
 
-```groovy
-pipeline {
-    agent { label 'docker' }
+| Convention | Value |
+|---|---|
+| Agent label | `min-ol-9-x64` |
+| AWS credentials | `re-cd-aws` via `AmazonWebServicesCredentialsBinding` |
+| Region | `us-east-1` |
+| Packer | installed to `~/bin` by `make deps`, run with `-color=false`, output teed to a log |
+| AMI id | extracted from the log, stashed and archived per variant and architecture |
+| Notifications | `#releases-ci`, colour-coded start, success, and failure |
+| Options | `skipDefaultCheckout()`, `disableConcurrentBuilds()` |
 
-    parameters {
-        string(name: 'VALKEY_VERSION', defaultValue: '9.1.1',
-               description: 'Valkey version to install')
-        choice(name: 'REPO_CHANNEL', choices: ['release', 'testing', 'experimental'],
-               description: 'Percona repository channel')
-        booleanParam(name: 'COPY_REGIONS', defaultValue: true,
-                     description: 'Copy the resulting AMIs to the region list')
-    }
-
-    environment {
-        AWS_DEFAULT_REGION = 'us-east-1'
-        PACKER_DIR = 'images/packer'
-    }
-
-    stages {
-        stage('Lint') {
-            steps {
-                sh 'cd images && make lint'
-            }
-        }
-
-        stage('Unit tests') {
-            steps {
-                sh 'cd images && make unit'
-            }
-        }
-
-        stage('Build') {
-            matrix {
-                axes {
-                    axis { name 'VARIANT'; values 'slim', 'bundle' }
-                    axis { name 'ARCH';    values 'x86_64', 'arm64' }
-                }
-                stages {
-                    stage('Packer build') {
-                        steps {
-                            withCredentials([usernamePassword(
-                                credentialsId: 'percona-images-aws',
-                                usernameVariable: 'AWS_ACCESS_KEY_ID',
-                                passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                                script {
-                                    // Passing an empty region list overrides the file default
-                                    // and suppresses copying; omitting the flag keeps it.
-                                    def noCopy = params.COPY_REGIONS ? '' : "-var 'ami_regions=[]'"
-                                    sh """
-                                        cd ${PACKER_DIR}
-                                        packer init .
-                                        packer build \
-                                          -only='${VARIANT}.amazon-ebs.${VARIANT}_${ARCH}' \
-                                          -var-file=release.pkvars.hcl \
-                                          -var valkey_version=${params.VALKEY_VERSION} \
-                                          -var repo_channel=${params.REPO_CHANNEL} \
-                                          ${noCopy} \
-                                          -machine-readable . \
-                                          | tee packer-${VARIANT}-${ARCH}.log
-                                    """
-                                    // artifact id line is region:ami-id; keep the build region entry
-                                    sh """
-                                        grep 'artifact,0,id' \
-                                          ${PACKER_DIR}/packer-${VARIANT}-${ARCH}.log \
-                                          | tail -1 | rev | cut -d, -f1 | rev \
-                                          | tr ',' '\\n' | grep '^${AWS_DEFAULT_REGION}:' \
-                                          | cut -d: -f2 > ${PACKER_DIR}/ami-${VARIANT}-${ARCH}.txt
-                                    """
-                                }
-                            }
-                        }
-                    }
-
-                    stage('Smoke test') {
-                        steps {
-                            withCredentials([
-                                usernamePassword(
-                                    credentialsId: 'percona-images-aws',
-                                    usernameVariable: 'AWS_ACCESS_KEY_ID',
-                                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'),
-                                sshUserPrivateKey(
-                                    credentialsId: 'percona-images-ssh',
-                                    keyFileVariable: 'SMOKE_KEY_FILE')]) {
-                                sh """
-                                    cd images
-                                    export SMOKE_SUBNET_ID=\$(grep subnet_id packer/build-vpc.auto.pkvars.hcl | cut -d'"' -f2)
-                                    export SMOKE_SECURITY_GROUP_ID=\$(grep security_group_id packer/build-vpc.auto.pkvars.hcl | cut -d'"' -f2)
-                                    export SMOKE_KEY_NAME=percona-images
-                                    ami_id=\$(cat packer/ami-${VARIANT}-${ARCH}.txt)
-                                    if [ "${ARCH}" = arm64 ]; then
-                                        instance_type=c6g.large
-                                    else
-                                        instance_type=c6i.large
-                                    fi
-                                    test/smoke/smoke.sh \
-                                      "\${ami_id}" \
-                                      ${AWS_DEFAULT_REGION} \
-                                      ${VARIANT} \
-                                      "\${instance_type}"
-                                """
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    post {
-        always {
-            archiveArtifacts artifacts: 'images/packer/packer-*.log,images/packer/ami-*.txt',
-                             allowEmptyArchive: true
-        }
-    }
-}
-```
+It differs from the PS80 job in building a matrix of four images rather than one, so each
+cell writes `build-<variant>-<arch>.log` and `ami-<variant>-<arch>.txt`, and it adds a
+per-image smoke stage gated on the `RUN_SMOKE` parameter.
 
 - [ ] **Step 2: Validate the pipeline syntax**
 
