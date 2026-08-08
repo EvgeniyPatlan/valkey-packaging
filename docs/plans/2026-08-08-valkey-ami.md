@@ -1271,7 +1271,7 @@ configuration, and the hardening requirements the Marketplace scan checks."
 
 **Interfaces:**
 - Consumes: the playbook from Tasks 3 through 5 and the suites from Task 6.
-- Produces: four AMIs named `percona-valkey-<version>-<variant>-<arch>-<YYYYMMDD>`,
+- Produces: four AMIs named `percona-valkey-<version>-<variant>-<arch>-<YYYYMMDD-hhmm>`,
   addressable to `-only` as `slim.amazon-ebs.x86_64`, `slim.amazon-ebs.arm64`,
   `bundle.amazon-ebs.x86_64`, `bundle.amazon-ebs.arm64`. Task 10 drives these from Jenkins.
 
@@ -1359,13 +1359,13 @@ packer {
 }
 
 locals {
-  build_date = formatdate("YYYYMMDD", timestamp())
+  build_date = formatdate("YYYYMMDD-hhmm", timestamp())
 
   common_tags = {
     Product      = "Percona Valkey"
     ValkeyVersion = var.valkey_version
     RepoChannel  = var.repo_channel
-    BuildDate    = formatdate("YYYYMMDD", timestamp())
+    BuildDate    = formatdate("YYYYMMDD-hhmm", timestamp())
   }
 }
 
