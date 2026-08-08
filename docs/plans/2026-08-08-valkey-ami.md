@@ -177,6 +177,8 @@ setup() {
     touch "$VALKEY_FIRSTBOOT_MODULE_DIR/libjson.so"
     export VALKEY_VARIANT=slim
     run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    grep -q '^requirepass ' "$GENERATED"
     ! grep -q '^loadmodule ' "$GENERATED"
 }
 
@@ -261,7 +263,15 @@ PASSWORD_LENGTH=32
 generate_password() {
     # Alphanumeric only: valkey.conf gives no special meaning to these characters,
     # so the value never needs quoting or escaping.
-    openssl rand -base64 96 | tr -dc 'A-Za-z0-9' | head -c "$PASSWORD_LENGTH"
+    #
+    # Reading a fixed chunk before filtering keeps the producer from being killed
+    # by SIGPIPE, which would otherwise trip pipefail. The filter discards roughly
+    # three quarters of the bytes, so the loop covers a short first draw.
+    local candidate=""
+    while [ "${#candidate}" -lt "$PASSWORD_LENGTH" ]; do
+        candidate+=$(head -c 256 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9')
+    done
+    printf '%s' "${candidate:0:$PASSWORD_LENGTH}"
 }
 
 compute_maxmemory_bytes() {

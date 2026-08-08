@@ -125,7 +125,7 @@ included from the shipped `valkey.conf`. It contains:
 
 | Directive | Value |
 |---|---|
-| `requirepass` | 32 alphanumeric characters derived from `openssl rand`, avoiding characters that would need quoting in `valkey.conf` |
+| `requirepass` | 32 alphanumeric characters drawn from `/dev/urandom`, avoiding characters that would need quoting in `valkey.conf` |
 | `maxmemory` | 70% of `MemTotal` |
 | `maxmemory-policy` | `noeviction` |
 | `loadmodule` | One line per module object, `bundle` variant only |
