@@ -6,3 +6,5 @@
   roles:
     - valkey-repo
     - valkey-install
+    - valkey-tuning
+    - valkey-firstboot

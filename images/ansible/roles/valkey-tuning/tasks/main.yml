@@ -1,0 +1,40 @@
+---
+- name: Deploy the Valkey sysctl settings
+  ansible.builtin.copy:
+    src: 99-valkey.conf
+    dest: /etc/sysctl.d/99-valkey.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Deploy the transparent huge pages unit
+  ansible.builtin.copy:
+    src: valkey-thp.service
+    dest: /etc/systemd/system/valkey-thp.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Create the Valkey instance drop-in directory
+  # The template unit is valkey@.service, so the drop-in applies to every
+  # instance rather than a single one.
+  ansible.builtin.file:
+    path: /etc/systemd/system/valkey@.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy the file descriptor limit drop-in
+  ansible.builtin.copy:
+    src: 10-limits.conf
+    dest: /etc/systemd/system/valkey@.service.d/10-limits.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable the transparent huge pages unit
+  ansible.builtin.systemd:
+    name: valkey-thp.service
+    enabled: true
+    daemon_reload: true

@@ -1,0 +1,65 @@
+---
+- name: Install the first-boot script
+  ansible.builtin.copy:
+    src: valkey-firstboot.sh
+    dest: /usr/local/sbin/valkey-firstboot
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install the first-boot unit
+  ansible.builtin.copy:
+    src: valkey-firstboot.service
+    dest: /etc/systemd/system/valkey-firstboot.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Set the variant the first-boot unit runs with
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/system/valkey-firstboot.service
+    regexp: '^Environment=VALKEY_VARIANT='
+    line: "Environment=VALKEY_VARIANT={{ valkey_variant }}"
+
+- name: Enable the first-boot unit
+  ansible.builtin.systemd:
+    name: valkey-firstboot.service
+    enabled: true
+    daemon_reload: true
+
+- name: Bind Valkey to loopback only
+  ansible.builtin.lineinfile:
+    path: "{{ valkey_conf }}"
+    regexp: '^#?\s*bind '
+    line: 'bind 127.0.0.1 -::1'
+
+- name: Enable protected mode
+  ansible.builtin.lineinfile:
+    path: "{{ valkey_conf }}"
+    regexp: '^#?\s*protected-mode '
+    line: 'protected-mode yes'
+
+- name: Create an empty generated configuration
+  # valkey-server treats an include of a missing file as fatal. The first-boot
+  # unit fills this in before the instance starts, but the file must exist from
+  # bake time so the include is always resolvable.
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ valkey_generated_conf }}"
+    owner: root
+    group: valkey
+    mode: "0640"
+    force: false
+
+- name: Include the generated configuration last
+  # Later directives win, so this must remain the final line of default.conf.
+  ansible.builtin.lineinfile:
+    path: "{{ valkey_conf }}"
+    line: "include {{ valkey_generated_conf }}"
+    insertafter: EOF
+    state: present
+
+- name: Enable the default Valkey instance
+  ansible.builtin.systemd:
+    name: "{{ valkey_instance }}"
+    enabled: true

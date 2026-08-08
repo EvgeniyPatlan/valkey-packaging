@@ -1286,6 +1286,11 @@ variable "instance_type_arm64" {
   type    = string
   default = "c6g.large"
 }
+
+variable "bats_version" {
+  type    = string
+  default = "1.11.0"
+}
 ```
 
 - [ ] **Step 2: Write the build template**
@@ -1468,7 +1473,15 @@ build {
   sources = ["source.amazon-ebs.slim_x86_64", "source.amazon-ebs.slim_arm64"]
 
   provisioner "shell" {
-    inline = ["sudo dnf -y install ansible-core bats"]
+    inline = [
+      "sudo dnf -y install ansible-core tar gzip",
+      # Amazon Linux 2023 ships no bats package. Install the pinned upstream
+      # release under /opt so the whole tree can be removed before the snapshot.
+      "curl -fsSL https://github.com/bats-core/bats-core/archive/refs/tags/v${var.bats_version}.tar.gz -o /tmp/bats.tar.gz",
+      "tar -xzf /tmp/bats.tar.gz -C /tmp",
+      "sudo /tmp/bats-core-${var.bats_version}/install.sh /opt/bats",
+      "rm -rf /tmp/bats.tar.gz /tmp/bats-core-${var.bats_version}",
+    ]
   }
 
   provisioner "ansible-local" {
@@ -1488,8 +1501,12 @@ build {
 
   provisioner "shell" {
     inline = [
-      "sudo VALKEY_VARIANT=slim VALKEY_VERSION=${var.valkey_version} bats /tmp/bats/*.bats",
+      "sudo VALKEY_VARIANT=slim VALKEY_VERSION=${var.valkey_version} /opt/bats/bin/bats /tmp/bats/*.bats",
       "rm -rf /tmp/bats",
+      # Build-time only: neither belongs in a published image.
+      "sudo rm -rf /opt/bats",
+      "sudo dnf -y remove ansible-core",
+      "sudo dnf clean all",
     ]
   }
 }
@@ -1499,7 +1516,15 @@ build {
   sources = ["source.amazon-ebs.bundle_x86_64", "source.amazon-ebs.bundle_arm64"]
 
   provisioner "shell" {
-    inline = ["sudo dnf -y install ansible-core bats"]
+    inline = [
+      "sudo dnf -y install ansible-core tar gzip",
+      # Amazon Linux 2023 ships no bats package. Install the pinned upstream
+      # release under /opt so the whole tree can be removed before the snapshot.
+      "curl -fsSL https://github.com/bats-core/bats-core/archive/refs/tags/v${var.bats_version}.tar.gz -o /tmp/bats.tar.gz",
+      "tar -xzf /tmp/bats.tar.gz -C /tmp",
+      "sudo /tmp/bats-core-${var.bats_version}/install.sh /opt/bats",
+      "rm -rf /tmp/bats.tar.gz /tmp/bats-core-${var.bats_version}",
+    ]
   }
 
   provisioner "ansible-local" {
@@ -1519,8 +1544,12 @@ build {
 
   provisioner "shell" {
     inline = [
-      "sudo VALKEY_VARIANT=bundle VALKEY_VERSION=${var.valkey_version} bats /tmp/bats/*.bats",
+      "sudo VALKEY_VARIANT=bundle VALKEY_VERSION=${var.valkey_version} /opt/bats/bin/bats /tmp/bats/*.bats",
       "rm -rf /tmp/bats",
+      # Build-time only: neither belongs in a published image.
+      "sudo rm -rf /opt/bats",
+      "sudo dnf -y remove ansible-core",
+      "sudo dnf clean all",
     ]
   }
 }
@@ -1528,7 +1557,9 @@ build {
 
 The cleanup role runs as part of the playbook, before the suites upload. The final shell
 provisioner removes the uploaded suites so the hardening assertion about `/tmp` holds for
-the snapshot.
+the snapshot, then removes bats and `ansible-core`, which exist only to build and verify
+the image. Because that removal happens after the suites run, their absence is asserted by
+the post-launch smoke test in Task 8 rather than by `hardening.bats`.
 
 - [ ] **Step 3: Write the variable files**
 
@@ -1693,7 +1724,12 @@ if [ "$VARIANT" = "bundle" ]; then
     done
 else
     MODULES=$(remote "valkey-cli -a '${PASSWORD}' --no-auth-warning MODULE LIST")
-    check "no modules are loaded" test -z "$(tr -d '[:space:]' <<<"$MODULES")"
+    # Valkey always reports a built-in "lua" module, so the slim check asserts
+    # the absence of the four packaged modules rather than an empty list.
+    no_external_modules() {
+        ! grep -qE '(^|[[:space:]])(json|bf|search|ldap)([[:space:]]|$)' <<<"$MODULES"
+    }
+    check "no packaged modules are loaded" no_external_modules
 fi
 
 port_closed() {
@@ -1701,6 +1737,14 @@ port_closed() {
 }
 
 check "port 6379 is not reachable from outside the instance" port_closed
+
+# Build tooling is removed after the bake-time suites run, so its absence can
+# only be asserted here.
+no_build_tooling() {
+    remote "test ! -e /opt/bats && ! rpm -q ansible-core >/dev/null 2>&1"
+}
+
+check "build tooling is absent from the published image" no_build_tooling
 
 echo "Rebooting to confirm the password is preserved"
 remote "sudo systemctl reboot" || true
