@@ -57,7 +57,7 @@ source of truth for those tasks; the steps below record how they were built and 
 | 8a smoke test run | pending | needs an EC2 key pair and ssh credential |
 | 9 remaining three images | pending | full matrix with region copy |
 | 10 Jenkins pipeline run | pending | needs a Jenkins controller |
-| 11 Marketplace preparation | pending | needs a seller account |
+| 11 Marketplace preparation | done | `images/MARKETPLACE.md`; per-release tables filled at submission |
 
 Divergences from the original plan, all driven by what the packaging and the base
 image actually do:
