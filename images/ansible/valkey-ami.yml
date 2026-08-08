@@ -8,3 +8,4 @@
     - valkey-install
     - valkey-tuning
     - valkey-firstboot
+    - cloud-cleanup

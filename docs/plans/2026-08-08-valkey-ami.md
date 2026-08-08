@@ -929,18 +929,24 @@ and ships an empty placeholder so the include always resolves."
   loop_control:
     label: "{{ item.path }}"
 
-- name: Lock all interactive accounts
-  ansible.builtin.command: passwd --lock root
-  changed_when: true
+- name: Lock the root account
+  ansible.builtin.user:
+    name: root
+    password_lock: true
 
 - name: Clean the package manager cache
   ansible.builtin.command: dnf clean all
   changed_when: true
 
+- name: Check whether cloud-init is present
+  ansible.builtin.stat:
+    path: /usr/bin/cloud-init
+  register: cloud_init_bin
+
 - name: Reset cloud-init state
-  ansible.builtin.command: cloud-init clean --logs --seed
+  ansible.builtin.command: cloud-init clean --logs
+  when: cloud_init_bin.stat.exists
   changed_when: true
-  failed_when: false
 
 - name: Find log files to truncate
   ansible.builtin.find:
@@ -950,15 +956,16 @@ and ships an empty placeholder so the include always resolves."
   register: log_files
 
 - name: Truncate log files
-  ansible.builtin.copy:
-    content: ""
-    dest: "{{ item.path }}"
-    owner: root
-    group: root
-    mode: "0600"
+  # Truncated rather than rewritten so ownership and permissions are preserved.
+  ansible.builtin.command: "truncate -s 0 {{ item.path }}"
   loop: "{{ log_files.files }}"
   loop_control:
     label: "{{ item.path }}"
+  changed_when: true
+
+- name: Clear the systemd journal
+  ansible.builtin.command: journalctl --rotate --vacuum-time=1s
+  changed_when: true
 
 - name: Find shell history files
   ansible.builtin.find:
@@ -980,12 +987,8 @@ and ships an empty placeholder so the include always resolves."
 
 - name: Clear the machine identity
   # Truncated rather than removed so systemd regenerates it at next boot.
-  ansible.builtin.copy:
-    content: ""
-    dest: /etc/machine-id
-    owner: root
-    group: root
-    mode: "0444"
+  ansible.builtin.command: truncate -s 0 /etc/machine-id
+  changed_when: true
 ```
 
 - [ ] **Step 2: Add the role last in the playbook**
@@ -1191,8 +1194,14 @@ GENERATED=/etc/valkey/valkey-generated.conf
     [ ! -s /etc/machine-id ]
 }
 
-@test 'the package cache is empty' {
-    [ "$(find /var/cache/dnf -type f 2>/dev/null | wc -l)" -eq 0 ]
+@test 'no cached packages or repository metadata remain' {
+    # dnf clean all deliberately keeps small bookkeeping files
+    # (expired_repos.json, tempfiles.json, .gpgkeyschecked.yum) which hold no
+    # package data. What must not survive the bake is downloaded rpms or the
+    # repository metadata they were resolved from.
+    [ "$(find /var/cache/dnf -name '*.rpm' 2>/dev/null | wc -l)" -eq 0 ]
+    [ "$(find /var/cache/dnf \( -name '*.solv' -o -name '*.solvx' -o -name 'repomd.xml' \) \
+        2>/dev/null | wc -l)" -eq 0 ]
 }
 
 @test 'no provisioning artifacts remain in tmp' {
