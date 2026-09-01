@@ -8,7 +8,7 @@
 
 Name:           percona-valkey-search
 Version:        1.2.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Vector and full-text search module for Percona Valkey
 
 License:        BSD-3-Clause
@@ -98,5 +98,8 @@ sh gen-module-sbom.sh %{name} %{version} %{buildroot}%{_datadir}/%{name}/sbom .
 %{_datadir}/%{name}/
 
 %changelog
-* Wed Jun 25 2026 Percona Build <info@percona.com> - 1.2.0-1
+* Tue Sep 01 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 1.2.0-2
+- Rebuild against Percona Valkey 9.1.2
+
+* Thu Jun 25 2026 Percona Build <info@percona.com> - 1.2.0-1
 - Initial percona-valkey-search package (upstream valkey-search 1.2.0)

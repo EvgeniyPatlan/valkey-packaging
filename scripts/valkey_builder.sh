@@ -10,9 +10,9 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 readonly PRODUCT="valkey"
 readonly PACKAGE_NAME="percona-valkey"
-readonly DEFAULT_VERSION="9.1.1"
+readonly DEFAULT_VERSION="9.1.2"
 readonly DEFAULT_RELEASE="1"
-readonly DEFAULT_BRANCH="9.1"
+readonly DEFAULT_BRANCH="9.1.2"
 readonly DEFAULT_REPO="https://github.com/valkey-io/valkey.git"
 
 # valkey-json module packaging (separate upstream source + version)
@@ -39,7 +39,7 @@ readonly DEFAULT_SEARCH_VERSION="1.2.0"
 # payload of its own. No upstream source to compile — the "source" is a small
 # tarball (README + LICENSE) assembled from this repo's bundle/ dir.
 readonly BUNDLE_PACKAGE_NAME="percona-valkey-bundle"
-readonly DEFAULT_BUNDLE_VERSION="9.1.1"
+readonly DEFAULT_BUNDLE_VERSION="9.1.2"
 
 # Absolute path to the directory containing this script
 BUILDER_SCRIPT_DIR="$(dirname "$(readlink -e "${0}")")"

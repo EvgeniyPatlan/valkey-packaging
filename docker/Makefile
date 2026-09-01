@@ -6,7 +6,7 @@
 
 IMAGE_NAME := perconalab/valkey
 BUNDLE_IMAGE_NAME := perconalab/valkey-bundle
-VALKEY_VERSION := 9.1.1
+VALKEY_VERSION := 9.1.2
 REPO_CHANNEL ?= experimental
 
 TAG_HARDENED := $(VALKEY_VERSION)-hardened

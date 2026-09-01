@@ -12,7 +12,7 @@ set -euo pipefail
 
 IMAGE="${1:?Usage: $0 <image:tag> [hardened|rpm|bundle-rpm|bundle-hardened]}"
 TYPE="${2:-$(echo "$IMAGE" | grep -q hardened && echo hardened || echo rpm)}"
-VALKEY_VERSION="${VALKEY_VERSION:-9.1.1}"
+VALKEY_VERSION="${VALKEY_VERSION:-9.1.2}"
 CNT="valkey-test-$$"
 
 # Bundle images ship the SBOM under a different name and load modules; hardened

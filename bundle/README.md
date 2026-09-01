@@ -16,7 +16,7 @@ Installing `percona-valkey-bundle` pulls in:
 | `percona-valkey-ldap` | — | LDAP authentication (`libvalkey_ldap.so`) |
 
 Curated versions for 9.1 (from `valkey-io/valkey-bundle` `versions.json`):
-server 9.1.1, json 1.0.2, bloom 1.0.1, search 1.2.0, ldap 1.1.1.
+server 9.1.2, json 1.0.2, bloom 1.0.1, search 1.2.0, ldap 1.1.1.
 
 ## Install
 

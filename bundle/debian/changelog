@@ -1,5 +1,11 @@
+percona-valkey-bundle (9.1.2-1) unstable; urgency=medium
+
+  * Bump bundled Percona Valkey server to 9.1.2.
+
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Tue, 01 Sep 2026 00:00:00 +0000
+
 percona-valkey-bundle (9.1.1-1) unstable; urgency=medium
 
   * Initial percona-valkey-bundle meta-package (server + json/bloom/search/ldap).
 
- -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Jul, 23 Jun 2026 00:00:00 +0000
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Thu, 23 Jul 2026 00:00:00 +0000

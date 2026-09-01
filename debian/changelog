@@ -1,3 +1,9 @@
+percona-valkey (9.1.2-1) unstable; urgency=medium
+
+  * Bump to Valkey 9.1.2 (built from the upstream 9.1.2 tag).
+
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Tue, 01 Sep 2026 08:00:00 +0000
+
 percona-valkey (9.1.1-1) unstable; urgency=medium
 
   * Bump to Valkey 9.1.1 (built from upstream 9.1 branch).
@@ -8,4 +14,4 @@ percona-valkey (9.0.2-1) unstable; urgency=medium
 
   * Initial build
 
- -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Wed, 04 Feb 2025 08:00:00 +0000
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Tue, 04 Feb 2025 08:00:00 +0000

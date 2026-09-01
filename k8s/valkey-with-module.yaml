@@ -33,7 +33,7 @@ spec:
               mountPath: /shared
       containers:
         - name: valkey
-          image: perconalab/valkey:9.1.1
+          image: perconalab/valkey:9.1.2
           args: ["--loadmodule", "/shared/json/libjson.so"]
           ports:
             - name: valkey

@@ -1,5 +1,11 @@
+percona-valkey-search (1.2.0-2) unstable; urgency=medium
+
+  * Rebuild against Percona Valkey 9.1.2.
+
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Tue, 01 Sep 2026 00:00:00 +0000
+
 percona-valkey-search (1.2.0-1) unstable; urgency=medium
 
   * Initial percona-valkey-search package (upstream valkey-search 1.2.0).
 
- -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Wed, 25 Jun 2026 00:00:00 +0000
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Thu, 25 Jun 2026 00:00:00 +0000
