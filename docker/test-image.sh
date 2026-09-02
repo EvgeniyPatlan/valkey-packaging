@@ -8,6 +8,12 @@
 # NOTE: All grep/text processing runs on the HOST side because
 #       hardened (DHI distroless) images lack grep, cat, touch, etc.
 #
+# SBOMs: the image-level SBOM is a BuildKit attestation attached to the pushed
+#        image (--sbom=true), not a file inside the image, so it is not checked
+#        here. Package-shipped SBOMs under /usr/share/<pkg>/sbom/ are only
+#        present in images that install the packages directly (RPM/UBI); the
+#        hardened images copy just the runtime bits and do not carry them.
+#
 set -euo pipefail
 
 IMAGE="${1:?Usage: $0 <image:tag> [hardened|rpm|bundle-rpm|bundle-hardened]}"
@@ -15,11 +21,9 @@ TYPE="${2:-$(echo "$IMAGE" | grep -q hardened && echo hardened || echo rpm)}"
 VALKEY_VERSION="${VALKEY_VERSION:-9.1.2}"
 CNT="valkey-test-$$"
 
-# Bundle images ship the SBOM under a different name and load modules; hardened
-# variants (incl. bundle-hardened) get the DHI base-label check.
 case "$TYPE" in
-    *bundle*)   IS_BUNDLE=1; SBOM_BASE="valkey-bundle" ;;
-    *)          IS_BUNDLE=0; SBOM_BASE="valkey" ;;
+    *bundle*)   IS_BUNDLE=1 ;;
+    *)          IS_BUNDLE=0 ;;
 esac
 case "$TYPE" in
     *hardened*) IS_HARDENED=1 ;;
@@ -142,26 +146,20 @@ check "port 6379 is declared" \
 echo "8. OCI labels:"
 check "vendor label is Percona" \
     sh -c "docker inspect '$IMAGE' | grep -q '\"org.opencontainers.image.vendor\": \"Percona\"'"
-    
-echo "9. SBOM files (SPDX + CycloneDX):"
-check "SPDX SBOM present (/usr/local/${SBOM_BASE}.spdx.json)" \
-    docker run --rm --entrypoint="" "$IMAGE" test -f "/usr/local/${SBOM_BASE}.spdx.json"
-check "CycloneDX SBOM present (/usr/local/${SBOM_BASE}.cdx.json)" \
-    docker run --rm --entrypoint="" "$IMAGE" test -f "/usr/local/${SBOM_BASE}.cdx.json"
-# The package also embeds a full SBOM set under /usr/share/percona-valkey/sbom/
-# (spdx/cdx json+xml, Syft table, licenses). The UBI9 image gets these from the
-# package; the hardened image must copy them explicitly. Assert every format is
-# shipped, not just the synthesized /usr/local scan above.
-for ext in spdx.json cdx.json spdx cdx.xml sbom.txt licenses.txt; do
-    check "embedded package SBOM present (/usr/share/percona-valkey/sbom/percona-valkey.$ext)" \
-        docker run --rm --entrypoint="" "$IMAGE" test -f "/usr/share/percona-valkey/sbom/percona-valkey.$ext"
-done
-# Read whole file via shell builtins (no cat/grep needed inside the image) and
-# grep on the host. A real Syft SPDX document carries an "spdxVersion" key.
-check "SPDX SBOM is a valid SBOM document" \
-    sh -c "docker run --rm --entrypoint='' '$IMAGE' sh -c 'while IFS= read -r l; do printf \"%s\\n\" \"\$l\"; done </usr/local/${SBOM_BASE}.spdx.json' | grep -q 'spdxVersion'"
-check "CycloneDX SBOM is a valid SBOM document" \
-    sh -c "docker run --rm --entrypoint='' '$IMAGE' sh -c 'while IFS= read -r l; do printf \"%s\\n\" \"\$l\"; done </usr/local/${SBOM_BASE}.cdx.json' | grep -q 'bomFormat'"
+check "version label is $VALKEY_VERSION" \
+    sh -c "docker inspect '$IMAGE' | grep -q '\"org.opencontainers.image.version\": \"$VALKEY_VERSION\"'"
+
+if [ "$IS_HARDENED" = "0" ]; then
+    echo "9. Package-shipped SBOM (percona-valkey):"
+    for ext in spdx.json cdx.json spdx cdx.xml sbom.txt licenses.txt; do
+        check "embedded package SBOM present (/usr/share/percona-valkey/sbom/percona-valkey.$ext)" \
+            docker run --rm --entrypoint="" "$IMAGE" test -f "/usr/share/percona-valkey/sbom/percona-valkey.$ext"
+    done
+    # Read the file via shell builtins (no cat/grep needed inside the image) and
+    # grep on the host. A real Syft SPDX document carries an "spdxVersion" key.
+    check "package SPDX SBOM is a valid SBOM document" \
+        sh -c "docker run --rm --entrypoint='' '$IMAGE' sh -c 'while IFS= read -r l; do printf \"%s\\n\" \"\$l\"; done </usr/share/percona-valkey/sbom/percona-valkey.spdx.json' | grep -q 'spdxVersion'"
+fi
 
 if [ "$IS_HARDENED" = "1" ]; then
     echo "10. Base image label:"
@@ -206,13 +204,15 @@ if [ "$IS_BUNDLE" = "1" ]; then
     check "FT.DROPINDEX removes the index" \
         sh -c "docker exec '$CNT' valkey-cli FT.DROPINDEX bt_idx >/dev/null && ! docker exec '$CNT' valkey-cli FT._LIST | grep -q bt_idx"
 
-    echo "10d. Per-package SBOMs shipped (server + modules):"
-    # Each module package embeds a Syft SBOM at /usr/share/<pkg>/sbom/. Use the
-    # shell builtin 'test' (distroless has no ls/find) via docker exec.
-    for pkg in percona-valkey-json percona-valkey-bloom percona-valkey-search percona-valkey-ldap; do
-        check "SBOM for $pkg present" \
-            docker exec "$CNT" sh -c "test -f /usr/share/$pkg/sbom/$pkg.spdx.json"
-    done
+    if [ "$IS_HARDENED" = "0" ]; then
+        echo "10d. Per-package SBOMs shipped (modules):"
+        # Each module package embeds a Syft SBOM at /usr/share/<pkg>/sbom/. Use the
+        # shell builtin 'test' via docker exec.
+        for pkg in percona-valkey-json percona-valkey-bloom percona-valkey-search percona-valkey-ldap; do
+            check "SBOM for $pkg present" \
+                docker exec "$CNT" sh -c "test -f /usr/share/$pkg/sbom/$pkg.spdx.json"
+        done
+    fi
 fi
 
 echo "11. SET/GET string:"
