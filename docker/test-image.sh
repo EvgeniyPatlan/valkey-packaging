@@ -9,10 +9,9 @@
 #       hardened (DHI distroless) images lack grep, cat, touch, etc.
 #
 # SBOMs: the image-level SBOM is a BuildKit attestation attached to the pushed
-#        image (--sbom=true), not a file inside the image, so it is not checked
-#        here. Package-shipped SBOMs under /usr/share/<pkg>/sbom/ are only
-#        present in images that install the packages directly (RPM/UBI); the
-#        hardened images copy just the runtime bits and do not carry them.
+#        image (--sbom=true), not a file inside the image. Images ship no SBOM
+#        files (package-shipped ones are removed at build time), so nothing
+#        SBOM-related is checked here.
 #
 set -euo pipefail
 
@@ -149,18 +148,6 @@ check "vendor label is Percona" \
 check "version label is $VALKEY_VERSION" \
     sh -c "docker inspect '$IMAGE' | grep -q '\"org.opencontainers.image.version\": \"$VALKEY_VERSION\"'"
 
-if [ "$IS_HARDENED" = "0" ]; then
-    echo "9. Package-shipped SBOM (percona-valkey):"
-    for ext in spdx.json cdx.json spdx cdx.xml sbom.txt licenses.txt; do
-        check "embedded package SBOM present (/usr/share/percona-valkey/sbom/percona-valkey.$ext)" \
-            docker run --rm --entrypoint="" "$IMAGE" test -f "/usr/share/percona-valkey/sbom/percona-valkey.$ext"
-    done
-    # Read the file via shell builtins (no cat/grep needed inside the image) and
-    # grep on the host. A real Syft SPDX document carries an "spdxVersion" key.
-    check "package SPDX SBOM is a valid SBOM document" \
-        sh -c "docker run --rm --entrypoint='' '$IMAGE' sh -c 'while IFS= read -r l; do printf \"%s\\n\" \"\$l\"; done </usr/share/percona-valkey/sbom/percona-valkey.spdx.json' | grep -q 'spdxVersion'"
-fi
-
 if [ "$IS_HARDENED" = "1" ]; then
     echo "10. Base image label:"
     check "base image label references DHI" \
@@ -204,15 +191,6 @@ if [ "$IS_BUNDLE" = "1" ]; then
     check "FT.DROPINDEX removes the index" \
         sh -c "docker exec '$CNT' valkey-cli FT.DROPINDEX bt_idx >/dev/null && ! docker exec '$CNT' valkey-cli FT._LIST | grep -q bt_idx"
 
-    if [ "$IS_HARDENED" = "0" ]; then
-        echo "10d. Per-package SBOMs shipped (modules):"
-        # Each module package embeds a Syft SBOM at /usr/share/<pkg>/sbom/. Use the
-        # shell builtin 'test' via docker exec.
-        for pkg in percona-valkey-json percona-valkey-bloom percona-valkey-search percona-valkey-ldap; do
-            check "SBOM for $pkg present" \
-                docker exec "$CNT" sh -c "test -f /usr/share/$pkg/sbom/$pkg.spdx.json"
-        done
-    fi
 fi
 
 echo "11. SET/GET string:"

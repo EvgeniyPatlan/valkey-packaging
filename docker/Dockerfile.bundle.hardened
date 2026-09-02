@@ -11,8 +11,7 @@
 #
 # SBOM and provenance are produced by BuildKit at build time
 # (docker buildx build --sbom=true --provenance=mode=max) and attached to the
-# pushed image as attestations. Nothing SBOM-related is generated inside the
-# image.
+# pushed image as attestations. No SBOM files are kept inside the image.
 ARG BASE_IMAGE=dhi.io/debian-base
 ARG BASE_DEV_TAG=trixie-dev
 ARG BASE_DEV_DIGEST=sha256:e2ab6c4b13bcb50e25d6d9a8b2f36b3ceaa620ffb6fbe4d7fb70cc50c5e77877
