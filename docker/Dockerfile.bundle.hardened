@@ -32,6 +32,7 @@ RUN set -eux; \
 	apt-get upgrade -y; \
 	apt-get install -y --no-install-recommends \
 		ca-certificates \
+		curl \
 		wget \
 		gnupg \
 		gpgv \
