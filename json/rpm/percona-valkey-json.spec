@@ -4,7 +4,7 @@
 
 Name:           percona-valkey-json
 Version:        1.0.2
-Release:        2%{?dist}
+Release:        1%{?dist}
 Summary:        Native JSON data type module for Percona Valkey
 
 License:        BSD-3-Clause
