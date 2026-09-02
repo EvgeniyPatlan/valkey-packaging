@@ -6,27 +6,37 @@
 # as the server image (docker/Dockerfile). Refresh after a base bump with:
 #   docker pull redhat/ubi9-minimal:<tag>
 #   docker inspect --format '{{index .RepoDigests 0}}' redhat/ubi9-minimal:<tag>
+#
+# SBOM and provenance are produced by BuildKit at build time
+# (docker buildx build --sbom=true --provenance=mode=max) and attached to the
+# pushed image as attestations. Nothing SBOM-related is generated inside the
+# image.
 ARG BASE_IMAGE=redhat/ubi9-minimal
 ARG BASE_TAG=latest
 ARG BASE_DIGEST=sha256:850143255ee0d1915f09aaa09f6ed31f24086ba605c323badfbefa95b8c52b0e
 
 FROM ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}
 
+ARG BASE_IMAGE
+ARG BASE_TAG
+ARG BASE_DIGEST
+ARG VALKEY_VERSION=9.1.2
+ARG REPO_CHANNEL=testing
+
 LABEL org.opencontainers.image.authors="info@percona.com" \
       org.opencontainers.image.source="https://github.com/valkey-io/valkey-bundle" \
       org.opencontainers.image.vendor="Percona" \
       org.opencontainers.image.title="Percona Valkey Bundle" \
       org.opencontainers.image.description="Percona Valkey server bundled with all supported modules (json, bloom, search, ldap)" \
-      org.opencontainers.image.version="9.1.2" \
-      org.opencontainers.image.base.name="redhat/ubi9-minimal:latest" \
-      org.opencontainers.image.base.digest="sha256:850143255ee0d1915f09aaa09f6ed31f24086ba605c323badfbefa95b8c52b0e"
+      org.opencontainers.image.version="${VALKEY_VERSION}" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}:${BASE_TAG}" \
+      org.opencontainers.image.base.digest="${BASE_DIGEST}"
 
-RUN microdnf -y update
-RUN microdnf -y install glibc-langpack-en
+ENV VALKEY_VERSION=${VALKEY_VERSION}
 
-ENV VALKEY_VERSION=9.1.2
-
-ARG REPO_CHANNEL=testing
+RUN microdnf -y update && \
+    microdnf -y install glibc-langpack-en && \
+    microdnf clean all
 
 # Import Percona + CentOS signing keys, add the Percona repo, then install the
 # percona-valkey-bundle meta-package — which pulls in the server and all four
@@ -56,19 +66,6 @@ RUN set -ex; \
     # Valkey refuses to load a non-executable module; force 0755 defensively in
     # case a module package ships the .so without the exec bit.
     chmod 0755 /usr/lib64/valkey/modules/*.so 2>/dev/null || true
-
-# Generate an SBOM (SPDX + CycloneDX) of the installed image, then remove the
-# generator so it is not shipped.
-RUN set -ex; \
-    mkdir -p /tmp/sbom-bin; \
-    curl -sSfL https://get.anchore.io/syft | sh -s -- -b /tmp/sbom-bin; \
-    vkver="$(valkey-server --version | awk '{print $3}' | cut -d= -f2)"; \
-    /tmp/sbom-bin/syft scan dir:/ \
-        --source-name percona-valkey-bundle --source-version "$vkver" \
-        --exclude './tmp' --exclude './proc' --exclude './sys' --exclude './dev' \
-        -o spdx-json=/usr/local/valkey-bundle.spdx.json \
-        -o cyclonedx-json=/usr/local/valkey-bundle.cdx.json; \
-    rm -rf /tmp/sbom-bin
 
 RUN mkdir /data && chown valkey:valkey /data
 VOLUME /data
