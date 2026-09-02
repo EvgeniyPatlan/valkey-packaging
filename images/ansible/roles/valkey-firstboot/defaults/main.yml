@@ -1,0 +1,5 @@
+---
+valkey_variant: slim
+valkey_conf: /etc/valkey/default.conf
+valkey_generated_conf: /etc/valkey/valkey-generated.conf
+valkey_instance: valkey@default.service

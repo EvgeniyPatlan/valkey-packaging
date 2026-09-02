@@ -1,0 +1,8 @@
+---
+# On RPM systems the server, sentinel, and CLI tools ship in a single package.
+# The -server/-sentinel/-tools split exists only on DEB.
+valkey_variant_packages:
+  slim:
+    - percona-valkey
+  bundle:
+    - percona-valkey-bundle

@@ -1,0 +1,25 @@
+---
+- name: Assert the requested variant is known
+  ansible.builtin.assert:
+    that: valkey_variant in valkey_variant_packages
+    fail_msg: >-
+      Unknown variant '{{ valkey_variant }}';
+      expected one of {{ valkey_variant_packages.keys() | list | join(', ') }}
+
+- name: Install the Valkey packages for this variant
+  ansible.builtin.dnf:
+    name: "{{ valkey_variant_packages[valkey_variant] }}"
+    state: present
+
+- name: Query the installed Valkey version
+  ansible.builtin.command: rpm -q --queryformat '%{VERSION}' percona-valkey
+  register: valkey_installed
+  changed_when: false
+
+- name: Assert the installed version matches the requested version
+  ansible.builtin.assert:
+    that: valkey_installed.stdout == valkey_version
+    fail_msg: >-
+      Installed percona-valkey {{ valkey_installed.stdout }},
+      but {{ valkey_version }} was requested from the
+      '{{ valkey_repo_channel }}' channel

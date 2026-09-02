@@ -1,0 +1,15 @@
+[Unit]
+Description=Generate per-instance Percona Valkey configuration
+Documentation=https://docs.percona.com/
+Before=valkey@default.service
+After=local-fs.target
+ConditionPathExists=!/etc/valkey/.firstboot-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/valkey-firstboot
+Environment=VALKEY_VARIANT=slim
+
+[Install]
+WantedBy=multi-user.target
