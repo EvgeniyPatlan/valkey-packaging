@@ -1,0 +1,13 @@
+percona-valkey-admin (1.1.1-2) unstable; urgency=medium
+
+  * Track the RPM Release bump to 2 so the two builders' version
+    authorities keep moving together, per README.packaging.md.
+
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Tue, 22 Sep 2026 12:00:00 +0000
+
+percona-valkey-admin (1.1.1-1) unstable; urgency=medium
+
+  * Initial packaging of the headless server, built from the upstream
+    valkey-admin 1.1.1 release tarball.
+
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Mon, 21 Sep 2026 12:00:00 +0000

@@ -1,0 +1,9 @@
+FROM rockylinux:8
+RUN dnf -y install epel-release \
+ && dnf -y install rpm-build rpmdevtools rpmlint createrepo_c \
+      git tar gzip findutils which python3 systemd \
+ && dnf -y module reset nodejs \
+ && dnf -y module enable nodejs:22 \
+ && dnf -y install nodejs npm \
+ && dnf clean all
+WORKDIR /build

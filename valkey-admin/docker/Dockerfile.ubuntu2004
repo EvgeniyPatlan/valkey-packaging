@@ -1,0 +1,20 @@
+FROM ubuntu:20.04
+ENV DEBIAN_FRONTEND=noninteractive
+# focal's own archive only has debhelper 12.10, which cannot satisfy this
+# package's debhelper-compat (= 13) build dependency. debhelper 13 is
+# available as a focal-backports package. The base image's own
+# /etc/apt/sources.list already carries an active (uncommented)
+# focal-backports entry, so target that suite directly rather than pointing
+# at a hardcoded mirror host -- archive.ubuntu.com carries no arm64 (that
+# lives on ports.ubuntu.com), and this image is built for both. Using the
+# suite the base image already configured picks up whichever mirror is
+# correct for the architecture being built.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends -t focal-backports debhelper \
+ && apt-get install -y --no-install-recommends \
+      build-essential devscripts dh-make fakeroot lintian \
+      ca-certificates curl git dpkg-dev \
+ && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /build

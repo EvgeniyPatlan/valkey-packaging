@@ -1,0 +1,6 @@
+FROM amazonlinux:2023
+RUN dnf -y install rpm-build rpmdevtools createrepo_c \
+      git tar gzip findutils which python3 systemd-rpm-macros \
+      nodejs22 nodejs22-npm \
+ && dnf clean all
+WORKDIR /build

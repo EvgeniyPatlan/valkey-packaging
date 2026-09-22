@@ -1,0 +1,31 @@
+[Unit]
+Description=Valkey Admin web server
+Documentation=https://valkey-admin.valkey.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=valkey-admin
+Group=valkey-admin
+EnvironmentFile=/etc/valkey-admin/valkey-admin.env
+ExecStart=/usr/bin/node /usr/lib/percona-valkey-admin-server/apps/server/dist/index.cjs
+Restart=on-failure
+RestartSec=5s
+
+# The orchestrator spawns one collector process per monitored Valkey node.
+TasksMax=4096
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=/var/lib/valkey-admin
+# MemoryDenyWriteExecute is deliberately NOT set: it breaks the V8 JIT.
+
+[Install]
+WantedBy=multi-user.target

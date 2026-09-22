@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_auto_build:
+
+override_dh_auto_install:
+	mkdir -p debian/valkey-admin-server/usr/lib/valkey-admin-server
+	echo "pre-rename fixture payload marker" \
+	  > debian/valkey-admin-server/usr/lib/valkey-admin-server/marker
+	install -Dm0644 packaging/systemd/valkey-admin.service \
+	  debian/valkey-admin-server/lib/systemd/system/valkey-admin.service
+	install -Dm0640 packaging/config/valkey-admin.env \
+	  debian/valkey-admin-server/etc/valkey-admin/valkey-admin.env
+	install -d -m0750 debian/valkey-admin-server/var/lib/valkey-admin
+
+override_dh_auto_test:

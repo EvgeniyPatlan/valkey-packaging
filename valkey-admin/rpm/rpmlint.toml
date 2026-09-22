@@ -1,0 +1,37 @@
+# Justified rpmlint exclusions. Every entry states why the finding is expected.
+#
+# NOTE ON FORMAT: this file keeps the ".toml" name but its content is NOT
+# TOML. The rpmlint shipped in the el9 build image (1.11, RHEL/Rocky's
+# packaged version) predates rpmlint's TOML-based configuration rewrite and
+# only understands the classic, Python-executed filter file format below,
+# loaded with "rpmlint -f" (there is no "--config" flag in this version at
+# all). Verified directly against the installed tool before writing this
+# file: a TOML-shaped config here silently fails to load ("error loading
+# ..., skipping: name 'Filters' is not defined") and every filter below
+# would then be ignored.
+from Config import *
+
+# The Apache-2.0 SPDX identifier is the correct, current license tag (it
+# matches LICENSE at the repo root) but this rpmlint's built-in valid-license
+# list predates Fedora/RHEL's move to SPDX identifiers and only recognizes
+# the old free-text forms ("Apache License", "Apache Software License").
+# This is a stale tool default, not a wrong License tag.
+addFilter(r"W: invalid-license Apache-2\.0")
+
+# /etc/valkey-admin and /var/lib/valkey-admin are intentionally 0750
+# (root:valkey-admin / valkey-admin:valkey-admin) rather than the standard
+# 0755 rpmlint expects of every directory unconditionally: they hold
+# service configuration and runtime data that should not be world-readable.
+# tests/test-rpm-install.sh asserts this same ownership.
+addFilter(r"E: non-standard-dir-perm /etc/valkey-admin 750")
+addFilter(r"E: non-standard-dir-perm /var/lib/valkey-admin 750")
+
+# /etc/valkey-admin/valkey-admin.env is 0640 root:valkey-admin by design, so
+# it is not world-readable -- the same rationale as the directory perms
+# above, and asserted by the same test.
+addFilter(r"E: non-readable /etc/valkey-admin/valkey-admin\.env 640")
+
+# The payload vendors its npm dependencies as built by the project; .npmignore
+# is metadata shipped inside a third-party dependency (@protobufjs/pool), not
+# authored by this package, and has no effect once installed.
+addFilter(r"W: hidden-file-or-dir .*/node_modules/.*/\.npmignore")

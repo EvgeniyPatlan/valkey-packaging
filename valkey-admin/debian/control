@@ -1,0 +1,17 @@
+Source: percona-valkey-admin
+Section: admin
+Priority: optional
+Maintainer: Evgeniy Patlan <evgeniy.patlan@percona.com>
+Build-Depends: debhelper-compat (= 13), nodejs (>= 20)
+Standards-Version: 4.7.2
+Homepage: https://valkey-admin.valkey.io
+
+Package: percona-valkey-admin-server
+Architecture: amd64 arm64
+Depends: ${misc:Depends}, nodejs (>= 20), adduser, init-system-helpers (>= 1.54~)
+Provides: valkey-admin-server (= ${binary:Version})
+Replaces: valkey-admin-server
+Conflicts: valkey-admin-server
+Description: Valkey Admin headless web server
+ Headless Valkey Admin web server, managed by systemd. Serves the web
+ interface and spawns one metrics collector per monitored Valkey node.

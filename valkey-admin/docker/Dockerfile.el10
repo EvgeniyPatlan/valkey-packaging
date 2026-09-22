@@ -1,0 +1,7 @@
+FROM rockylinux/rockylinux:10
+RUN dnf -y install --allowerasing \
+      rpm-build rpmdevtools createrepo_c \
+      git tar gzip findutils which python3 systemd-rpm-macros \
+      nodejs \
+ && dnf clean all
+WORKDIR /build
