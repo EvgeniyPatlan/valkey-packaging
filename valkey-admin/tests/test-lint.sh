@@ -56,7 +56,7 @@ while read -r target family image rest; do
       # reflects E-level tags, so an unsuppressed W-level finding would
       # exit 0.
       docker run --rm -v "$PACKAGING_ROOT:/pkg:ro" valkey-admin-pkg:debian12 \
-        lintian --suppress-tags-from-file /pkg/deb/lintian-overrides \
+        lintian --suppress-tags-from-file /pkg/debian/percona-valkey-admin-server.lintian-overrides \
         --fail-on error,warning "/pkg/out/$target/$base"
       echo "ok: lintian clean for $target/$base"
       ;;

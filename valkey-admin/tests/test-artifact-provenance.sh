@@ -36,7 +36,10 @@ source "$HERE/../lib/fetch-source.sh"
 # upstream source changed" from this test's point of view.
 #
 # Deliberately excluded: build.sh, rpm/build-rpm.sh, build-deb.sh, tests/,
-# lib/, docker/, targets.conf, rpm/rpmlint.toml, deb/lintian-overrides.
+# lib/, docker/, targets.conf, rpm/rpmlint.toml. The DEB lintian overrides
+# now ship inside the package (debian/percona-valkey-admin-server.lintian-overrides)
+# and are already covered by the "$PACKAGING_ROOT/debian" entry above, not a
+# separate exclusion.
 # rpm/build-rpm.sh and build-deb.sh are a real judgment call, not a clean
 # case: their fetch/extract calls decide what source material reaches the
 # build in the first place, which does influence content in a broad sense.
