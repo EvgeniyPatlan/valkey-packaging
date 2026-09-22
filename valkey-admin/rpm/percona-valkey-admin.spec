@@ -7,6 +7,11 @@
 %global debug_package %{nil}
 
 Name:           %{product_name}
+# Default so a bare rpmspec/rpmbuild invocation (no --define "_version ...")
+# still resolves to a real EVR instead of the literal, unexpanded
+# "%%{_version}" -- build-rpm.sh's "--define _version $VERSION" still
+# overrides this default when it runs the real build.
+%{!?_version: %global _version 1.1.1}
 Version:        %{_version}
 Release:        2%{?dist}
 Summary:        Administration tool for Valkey clusters and standalone instances
@@ -240,7 +245,5 @@ exit 0
 - Bump Release to 2 and switch Obsoletes to the strict-less-than form so
   the rename upgrade resolves without a same-EVR self-obsoletion overlap
 * Mon Sep 21 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 1.1.1-1
-- Package the 1.1.1 release from the upstream valkey-admin source tarball,
-  ported from the downstream/packaging working-tree-snapshot build to the
-  percona/valkey-packaging convention of building from a real release
-  archive with numbered auxiliary Sources
+- Initial packaging of the headless server, built from the upstream
+  valkey-admin 1.1.1 release tarball
