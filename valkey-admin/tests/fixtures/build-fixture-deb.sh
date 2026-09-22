@@ -18,9 +18,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$WORK/src/packaging/systemd" "$WORK/src/packaging/config"
-cp "$PACKAGING_ROOT/rpm/valkey-admin.service" "$WORK/src/packaging/systemd/"
-cp "$PACKAGING_ROOT/rpm/valkey-admin.env" "$WORK/src/packaging/config/"
+# "aux" matches this repo's own vocabulary for these same two files (see
+# rpm/build-rpm.sh's SOURCES copy comments and README.packaging.md) rather
+# than the pre-rename source tree's "packaging/systemd" + "packaging/config"
+# split, which exists nowhere in this repo.
+mkdir -p "$WORK/src/aux"
+cp "$PACKAGING_ROOT/rpm/valkey-admin.service" "$WORK/src/aux/"
+cp "$PACKAGING_ROOT/rpm/valkey-admin.env" "$WORK/src/aux/"
 cp -a "$HERE/deb/debian" "$WORK/src/debian"
 
 docker run --rm -i -v "$WORK:/work" -v "$OUT:/out" "valkey-admin-pkg:$TARGET" bash -eus <<SH
