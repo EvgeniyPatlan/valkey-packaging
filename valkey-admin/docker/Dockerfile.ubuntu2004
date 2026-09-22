@@ -17,4 +17,9 @@ RUN apt-get update \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/*
+# Syft: scans the built payload tree at package-build time to generate the
+# embedded SBOM (debian/rules override_dh_auto_install, via the repo-root
+# scripts/gen-module-sbom.sh). Pinned, not latest, so what a rebuild
+# catalogs stays reproducible -- same version every image installs.
+RUN curl -sSfL https://get.anchore.io/syft | sh -s -- -b /usr/local/bin v1.49.0
 WORKDIR /build

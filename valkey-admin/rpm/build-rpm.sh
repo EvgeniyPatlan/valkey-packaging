@@ -56,6 +56,7 @@ TARBALL="$(fetch_source_tarball)"
 docker run --rm -i \
   -v "$TARBALL:/sources/valkey-admin-$VERSION.tar.gz:ro" \
   -v "$PACKAGING_ROOT:/packaging:ro" -v "$OUT:/out" \
+  -v "$PACKAGING_ROOT/../scripts:/repo-scripts:ro" \
   "valkey-admin-pkg:$TARGET" bash -eus <<SH
 mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS
 cp /sources/valkey-admin-$VERSION.tar.gz /root/rpmbuild/SOURCES/
@@ -71,6 +72,12 @@ cp /packaging/rpm/valkey-admin.tmpfiles /root/rpmbuild/SOURCES/
 cp /packaging/rpm/valkey-admin.env /root/rpmbuild/SOURCES/
 cp /packaging/README.packaging.md /root/rpmbuild/SOURCES/
 cp /packaging/common/build-server-payload.sh /root/rpmbuild/SOURCES/
+# Source7: the repo-root SBOM generator (scripts/gen-module-sbom.sh). It
+# lives one level up from this product directory, outside the /packaging
+# mount, so it gets its own read-only mount rather than /packaging's --
+# same reasoning as the tarball mount above, just for a file this product
+# directory doesn't own.
+cp /repo-scripts/gen-module-sbom.sh /root/rpmbuild/SOURCES/
 cp /packaging/rpm/percona-valkey-admin.spec /root/rpmbuild/SPECS/
 rpmbuild -bb --define "_version $VERSION" /root/rpmbuild/SPECS/percona-valkey-admin.spec
 cp /root/rpmbuild/RPMS/*/*.rpm /out/

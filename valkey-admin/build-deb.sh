@@ -71,7 +71,13 @@ extract_source_tarball "$TARBALL" "$WORK/src"
 
 cp -a "$PACKAGING_ROOT/debian" "$WORK/src/debian"
 
-docker run --rm -i -v "$WORK:/work" -v "$PACKAGING_ROOT:/packaging:ro" -v "$OUT:/out" \
+# /repo-scripts: the repo-root SBOM generator (scripts/gen-module-sbom.sh)
+# lives one level up from this product directory, outside the /packaging
+# mount debian/rules already reaches into by absolute path -- same
+# bind-mount mechanism, its own mount because the file isn't under
+# $PACKAGING_ROOT.
+docker run --rm -i -v "$WORK:/work" -v "$PACKAGING_ROOT:/packaging:ro" \
+  -v "$PACKAGING_ROOT/../scripts:/repo-scripts:ro" -v "$OUT:/out" \
   "valkey-admin-pkg:$TARGET" bash -eus <<SH
 cd /work/src
 dpkg-buildpackage -us -uc -b
