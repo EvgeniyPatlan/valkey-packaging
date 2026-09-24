@@ -1,0 +1,1 @@
+u valkey-admin - "Valkey Admin service" /var/lib/valkey-admin /sbin/nologin

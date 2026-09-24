@@ -1,0 +1,20 @@
+Source: valkey-admin
+Section: admin
+Priority: optional
+Maintainer: Evgeniy Patlan <evgeniy.patlan@percona.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.2
+
+Package: valkey-admin-server
+Architecture: all
+Depends: ${misc:Depends}, adduser
+Description: Fixture stand-in for the pre-rename valkey-admin-server package
+ Ships the same unbranded paths as the real percona-valkey-admin-server
+ package -- the systemd unit, the /etc/valkey-admin/valkey-admin.env
+ conffile, /var/lib/valkey-admin, and a payload marker under
+ /usr/lib/valkey-admin-server -- with no application payload, and the real
+ pre-rename postinst/postrm so ownership, permissions and the purge branch
+ behave exactly as they did on the package this rename replaced. Used only
+ by tests/test-upgrade-deb.sh to exercise the rename upgrade's
+ Replaces/Conflicts resolution. Test infrastructure only -- never built or
+ shipped as a real artifact.

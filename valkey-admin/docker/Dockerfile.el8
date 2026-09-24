@@ -1,0 +1,14 @@
+FROM rockylinux:8
+RUN dnf -y install epel-release \
+ && dnf -y install rpm-build rpmdevtools rpmlint createrepo_c \
+      git tar gzip findutils which python3 systemd curl \
+ && dnf -y module reset nodejs \
+ && dnf -y module enable nodejs:22 \
+ && dnf -y install nodejs npm \
+ && dnf clean all
+# Syft: scans the built payload tree at package-build time to generate the
+# embedded SBOM (rpm/percona-valkey-admin.spec %install, via the repo-root
+# scripts/gen-module-sbom.sh). Pinned, not latest, so what a rebuild
+# catalogs stays reproducible -- same version every image installs.
+RUN curl -sSfL https://get.anchore.io/syft | sh -s -- -b /usr/local/bin v1.49.0
+WORKDIR /build

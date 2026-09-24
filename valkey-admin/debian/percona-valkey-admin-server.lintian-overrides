@@ -1,0 +1,24 @@
+# The payload ships a prebuilt native addon, so dh_shlibdeps is skipped by
+# design (see debian/rules's override_dh_shlibdeps) and never records a
+# Depends on libc6. Harmless: libc6 is Essential on every target this
+# package supports, and the addon's own highest requirement -- confirmed
+# with `objdump -T` against the built .node file -- is GLIBC_2.17, well
+# below every DEB target's shipped glibc (oldest is Ubuntu 20.04 at 2.31;
+# Debian 12 ships 2.36).
+missing-dependency-on-libc
+# npm packaging metadata (.npmignore) ships inside vendored node_modules
+# dependencies as built by the project; it is not authored by this package
+# and has no effect once installed.
+package-contains-npm-ignore-file
+# This is downstream/internal packaging, never uploaded through Debian's own
+# archive or ITP bug-tracking process, so there is no ITP bug for the initial
+# changelog entry to close.
+initial-upload-closes-no-bugs
+# tests/test-lint.sh deliberately lints every target's .deb through
+# one shared lintian (the debian12 image; see the test for why). Debian 12's
+# lintian (2.116.3) predates recognizing zstd-compressed control.tar/data.tar
+# members as an official deb(5) member type, which is dpkg-deb's default on
+# newer targets (ubuntu2204, ubuntu2404). The archives are valid and install
+# correctly on the matching target's own (newer) dpkg -- this is a lintian
+# version lag, not a malformed package.
+malformed-deb-archive

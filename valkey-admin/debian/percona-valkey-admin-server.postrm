@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+if [ "$1" = "purge" ]; then
+  rm -rf /var/lib/valkey-admin
+  if getent passwd valkey-admin >/dev/null; then
+    deluser --system valkey-admin || true
+  fi
+fi
+#DEBHELPER#

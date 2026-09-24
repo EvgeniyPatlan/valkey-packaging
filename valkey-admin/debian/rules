@@ -1,0 +1,63 @@
+#!/usr/bin/make -f
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+# The source root here is the extracted upstream valkey-admin-1.1.1 release
+# tarball (build-deb.sh assembles it that way; see README.packaging.md).
+# packaging/ is not part of that tarball -- it never was, on any version --
+# so the build helper and the aux files this package installs are not in
+# $(CURDIR); build-deb.sh bind-mounts this product directory into the build
+# container at /packaging, read-only, and the two rules below reach into it
+# by absolute path. This is the same mechanism rpm/build-rpm.sh already used
+# to supply Source1 to the spec before this port; here it also supplies the
+# build helper and the two aux files this side needs (the systemd unit and
+# the env file -- DEB has no equivalent of the RPM sysusers/tmpfiles
+# fragments, since debian/percona-valkey-admin-server.postinst creates the
+# user and directory directly).
+#
+# /repo-scripts is a second, separate mount (also from build-deb.sh): the
+# repo-root SBOM generator gen-module-sbom.sh lives one level up from this
+# product directory, outside /packaging, so it isn't reachable through that
+# mount and gets its own.
+override_dh_auto_build:
+	bash /packaging/common/build-server-payload.sh "$(CURDIR)" "$(CURDIR)/_payload"
+	cp /packaging/README.packaging.md README.packaging.md
+
+override_dh_auto_install:
+	mkdir -p debian/percona-valkey-admin-server/usr/lib/percona-valkey-admin-server
+	cp -a _payload/. debian/percona-valkey-admin-server/usr/lib/percona-valkey-admin-server/
+	install -Dm0644 /packaging/rpm/valkey-admin.service \
+	  debian/percona-valkey-admin-server/lib/systemd/system/valkey-admin.service
+	install -Dm0640 /packaging/rpm/valkey-admin.env \
+	  debian/percona-valkey-admin-server/etc/valkey-admin/valkey-admin.env
+	install -d -m0750 debian/percona-valkey-admin-server/var/lib/valkey-admin
+	# Embedded SBOM set (SPDX/CycloneDX json+xml, Syft table, license
+	# manifest); same generator, same two departures from the sibling
+	# products' call (destination/name keyed to the binary package, scan
+	# target is the assembled payload not the extracted source) as
+	# rpm/percona-valkey-admin.spec's %install -- see the comment there for
+	# why. dpkg-parsechangelog is the DEB's own version authority, matching
+	# bloom/debian/rules's pattern.
+	#
+	# SYFT_SELECT_CATALOGERS: without this, a "dir:" scan uses Syft's
+	# lock-file-based javascript-lock-cataloger (needs package-lock.json,
+	# which the shipped payload does not carry), not the
+	# javascript-package-cataloger that reads node_modules/*/package.json
+	# directly -- the payload's actual, installed form. Confirmed directly
+	# against this payload: without this line every one of the six SBOM
+	# files says "No packages discovered". See rpm/percona-valkey-admin.spec's
+	# %install for the full explanation.
+	SYFT_SELECT_CATALOGERS="+javascript-package-cataloger" \
+	sh /repo-scripts/gen-module-sbom.sh percona-valkey-admin-server \
+	  $$(dpkg-parsechangelog -S Version 2>/dev/null || echo 0) \
+	  debian/percona-valkey-admin-server/usr/share/percona-valkey-admin-server/sbom \
+	  debian/percona-valkey-admin-server/usr/lib/percona-valkey-admin-server
+
+# The payload ships a prebuilt native addon; dh_strip and dh_shlibdeps must not
+# try to reason about it.
+override_dh_strip:
+override_dh_shlibdeps:
+
+override_dh_auto_test:

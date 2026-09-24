@@ -41,6 +41,18 @@ readonly DEFAULT_SEARCH_VERSION="1.2.0"
 readonly BUNDLE_PACKAGE_NAME="percona-valkey-bundle"
 readonly DEFAULT_BUNDLE_VERSION="9.1.2"
 
+# valkey-admin packaging (Node.js administration server; separate upstream
+# source + version). Unlike the module packages above this is not a Valkey
+# module but a standalone server, so its package name and its source name
+# differ -- see valkey-admin/README.packaging.md.
+readonly ADMIN_PACKAGE_NAME="percona-valkey-admin"
+# The source tarball basename and its top-level directory. This must stay in
+# step with rpm/percona-valkey-admin.spec's "%global srcname" and its
+# "%autosetup -n %{srcname}-%{version}", which is what unpacks Source0.
+readonly ADMIN_SRC_NAME="valkey-admin"
+readonly DEFAULT_ADMIN_REPO="https://github.com/valkey-io/valkey-admin.git"
+readonly DEFAULT_ADMIN_VERSION="1.1.1"
+
 # Absolute path to the directory containing this script
 BUILDER_SCRIPT_DIR="$(dirname "$(readlink -e "${0}")")"
 readonly BUILDER_SCRIPT_DIR
@@ -155,6 +167,15 @@ Usage: $0 [OPTIONS]
         --build_bundle_deb              Build the percona-valkey-bundle binary DEB (per-arch meta)
         --bundle_version=VER            valkey-bundle version (default: ${DEFAULT_BUNDLE_VERSION})
         --search_repo=URL               valkey-search source repo (default: ${DEFAULT_SEARCH_REPO})
+        --admin_deps                    Install valkey-admin build deps (Node.js >= 20 + npm, packaging tools)
+        --get_admin_sources             Fetch valkey-admin into a source tarball
+        --build_admin_src_rpm           Build the percona-valkey-admin source RPM
+        --build_admin_rpm               Build the percona-valkey-admin binary RPM
+        --build_admin_src_deb           Build the percona-valkey-admin source DEB
+        --build_admin_deb               Build the percona-valkey-admin binary DEB
+        --admin_version=VER             valkey-admin version (default: ${DEFAULT_ADMIN_VERSION})
+        --admin_branch=REF              valkey-admin git ref (default: v<admin_version>)
+        --admin_repo=URL                valkey-admin source repo (default: ${DEFAULT_ADMIN_REPO})
         --help                          Print usage
 Example: $0 --builddir=/tmp/BUILD --get_sources --build_src_rpm --build_rpm
          $0 --builddir=/tmp/BUILD --get_json_sources --build_json_src_deb --build_json_deb
@@ -214,6 +235,15 @@ parse_arguments() {
             --build_bundle_src_deb=*|--build_bundle_src_deb) BUNDLE_SDEB=1 ;;
             --build_bundle_deb=*|--build_bundle_deb) BUNDLE_DEB=1 ;;
             --bundle_version=*)          BUNDLE_VERSION="${arg#*=}" ;;
+            --admin_deps=*|--admin_deps) ADMIN_DEPS=1 ;;
+            --get_admin_sources=*|--get_admin_sources) ADMIN_SOURCE=1 ;;
+            --build_admin_src_rpm=*|--build_admin_src_rpm) ADMIN_SRPM=1 ;;
+            --build_admin_rpm=*|--build_admin_rpm)   ADMIN_RPM=1 ;;
+            --build_admin_src_deb=*|--build_admin_src_deb) ADMIN_SDEB=1 ;;
+            --build_admin_deb=*|--build_admin_deb)   ADMIN_DEB=1 ;;
+            --admin_version=*)           ADMIN_VERSION="${arg#*=}" ;;
+            --admin_branch=*)            ADMIN_BRANCH="${arg#*=}" ;;
+            --admin_repo=*)              ADMIN_REPO="${arg#*=}" ;;
             --help)                      usage ;;
             *)                           die "Unknown option: $arg" ;;
         esac
@@ -1882,6 +1912,397 @@ build_bundle_deb() {
     copy_artifacts "deb" "${name}_${ver}-"*_*.deb
 }
 
+# ---------------------------------------------------------------------------
+# install_deps_admin — build deps for the valkey-admin administration server.
+#   Needs Node.js >= 20 with npm (the package build runs the upstream npm
+#   workspace build), the usual rpm/deb packaging tooling, and Syft for the
+#   embedded SBOM. Triggered by --admin_deps.
+#
+#   "Node.js >= 20" is not one package name across these targets, which is
+#   also why rpm/percona-valkey-admin.spec's BuildRequires is the boolean
+#   "(nodejs >= 1:20 or nodejs22 >= 1:22)" rather than a plain name:
+#     - EL8/EL9 ship nodejs as a DNF module whose default stream is older
+#       than 20, so the nodejs:22 stream must be reset and enabled first.
+#     - EL10 ships a new-enough nodejs directly, with no module stream.
+#     - Amazon Linux 2023's new-enough build is the separately-named
+#       nodejs22 / nodejs22-npm pair; its plain "nodejs" is too old.
+#     - Debian/Ubuntu archives are too old on most targets here, so the
+#       NodeSource repository is used.
+#   These are the same per-distro paths valkey-admin/docker/Dockerfile.*
+#   bakes into the standalone build harness, kept deliberately in step.
+# ---------------------------------------------------------------------------
+install_deps_admin() {
+    if [[ "$ADMIN_DEPS" -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        die "Cannot install dependencies — please run as root"
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        local pkg_mgr="yum"
+        command -v dnf &>/dev/null && pkg_mgr="dnf"
+
+        # --allowerasing: rockylinux:9 and amazonlinux:2023 ship curl-minimal,
+        # which conflicts with the full curl some of this tooling pulls in.
+        # Older yum has no such flag, hence the plain retry.
+        $pkg_mgr -y install --allowerasing \
+            rpm-build rpmdevtools createrepo_c \
+            git tar gzip findutils which python3 curl \
+        || $pkg_mgr -y install \
+            rpm-build rpmdevtools createrepo_c \
+            git tar gzip findutils which python3
+
+        # The spec uses %sysusers_requires_compat / %sysusers_create_compat.
+        # On EL9+/Amazon those macros come from systemd-rpm-macros; on EL8
+        # there is no such subpackage at all (they ship inside systemd), and
+        # naming it there aborts the whole transaction.
+        $pkg_mgr -y install systemd-rpm-macros || $pkg_mgr -y install systemd
+
+        if [[ "$PLATFORM_FAMILY" == "amazon" ]]; then
+            $pkg_mgr -y install nodejs22 nodejs22-npm \
+                || die "Could not install nodejs22 on Amazon Linux"
+        elif [[ "$RHEL" =~ ^[0-9]+$ ]] && [[ "$RHEL" -ge 10 ]]; then
+            $pkg_mgr -y install nodejs npm \
+                || die "Could not install nodejs on el${RHEL}"
+        else
+            $pkg_mgr -y module reset  nodejs    || true
+            $pkg_mgr -y module enable nodejs:22 || true
+            $pkg_mgr -y install nodejs npm \
+                || die "Could not install nodejs from the nodejs:22 module stream"
+        fi
+    else
+        export DEBIAN_FRONTEND=noninteractive
+        apt_get update
+        apt_get -y install \
+            build-essential debhelper devscripts dh-make fakeroot lintian \
+            dpkg-dev git curl ca-certificates wget python3
+
+        # Prefer the distro's own nodejs when it is already new enough. The
+        # newer targets in this matrix (Debian trixie, recent Ubuntu) ship
+        # Node >= 20 themselves, and NodeSource does not necessarily publish a
+        # suite for a just-released distro -- reaching for it unconditionally
+        # would fail the build on exactly the newest platforms while a
+        # perfectly good nodejs sat in the archive.
+        local archive_node_major
+        archive_node_major="$(apt-cache policy nodejs 2>/dev/null \
+            | awk '/Candidate:/ {print $2}' | sed -E 's/^[0-9]+://; s/[^0-9].*//')"
+        if [[ "$archive_node_major" =~ ^[0-9]+$ ]] && [[ "$archive_node_major" -ge 20 ]]; then
+            log_info "Using the distro's own nodejs ${archive_node_major}.x"
+            # Distro nodejs packages npm separately; the NodeSource one bundles it.
+            apt_get -y install nodejs npm || die "Could not install the distro nodejs/npm"
+        else
+            log_info "Distro nodejs is ${archive_node_major:-absent}, below 20 -- using NodeSource"
+            curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+                || die "NodeSource repository setup failed"
+            apt_get -y install nodejs || die "Could not install nodejs from NodeSource"
+        fi
+    fi
+
+    # Fail here, with the version named, rather than deep inside npm: an
+    # too-old Node surfaces there as an opaque syntax or engine error.
+    command -v node >/dev/null 2>&1 || die "node not available after dependency install"
+    local node_major
+    node_major="$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
+    [[ "$node_major" =~ ^[0-9]+$ ]] && [[ "$node_major" -ge 20 ]] \
+        || die "node $(node --version 2>/dev/null) is too old for valkey-admin (needs >= 20)"
+    log_info "node $(node --version) / npm $(npm --version 2>/dev/null || echo '?')"
+
+    ensure_syft_system
+}
+
+# ---------------------------------------------------------------------------
+# get_admin_sources — fetch valkey-admin into a source tarball
+#   No dependency vendoring, unlike bloom (cargo vendor) and json (RapidJSON):
+#   the npm dependency tree is installed by `npm ci` at PACKAGE-BUILD time
+#   (the spec's %build and debian/rules' override_dh_auto_build, both via
+#   common/build-server-payload.sh), so the RPM and DEB build stages need
+#   outbound network to the npm registry. That is deliberate — a vendored
+#   node_modules would add roughly a gigabyte to a tarball that every one of
+#   this job's matrix stages downloads from the artifact store.
+# ---------------------------------------------------------------------------
+get_admin_sources() {
+    if [[ "$ADMIN_SOURCE" -eq 0 ]]; then
+        log_info "valkey-admin sources will not be downloaded"
+        return 0
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    # Named for the UPSTREAM source, not the package: the spec unpacks it
+    # with "%autosetup -n %{srcname}-%{version}" where srcname is
+    # valkey-admin, and Source0's basename has to match. percona-valkey-admin
+    # is the package name and appears only on the built artifacts.
+    local name="${ADMIN_SRC_NAME}-${ADMIN_VERSION}"
+    local srcdir="${WORKDIR}/${name}"
+
+    log_info "Cloning valkey-admin ${ADMIN_BRANCH} from ${ADMIN_REPO} ..."
+    rm -rf "${srcdir}"
+    if ! git clone --depth 1 --branch "${ADMIN_BRANCH}" "${ADMIN_REPO}" "${name}"; then
+        die "Failed to clone valkey-admin from ${ADMIN_REPO} (ref ${ADMIN_BRANCH})"
+    fi
+
+    local revision
+    revision="$(cd "${srcdir}" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+    log_info "Stripping VCS metadata ..."
+    find "${srcdir}" -name .git -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
+    log_info "Creating ${name}.tar.gz ..."
+    tar --owner=0 --group=0 -czf "${name}.tar.gz" "${name}" \
+        || die "Failed to create valkey-admin source tarball"
+
+    # Properties file consumed by the Jenkins pipeline to derive the upload path.
+    cat > "${WORKDIR}/valkey-admin.properties" <<EOF
+PRODUCT=${ADMIN_PACKAGE_NAME}
+PRODUCT_FULL=${ADMIN_PACKAGE_NAME}-${ADMIN_VERSION}
+VERSION=${ADMIN_VERSION}
+BUILD_NUMBER=${BUILD_NUMBER:-}
+BUILD_ID=${BUILD_ID:-}
+REVISION=${revision}
+UPLOAD=UPLOAD/experimental/BUILDS/valkey-admin/${ADMIN_PACKAGE_NAME}-${ADMIN_VERSION}/${ADMIN_BRANCH}/${revision}/${BUILD_ID:-}
+EOF
+
+    copy_artifacts "source_tarball" "${name}.tar.gz"
+
+    cd "$CURDIR" || die "Cannot cd to $CURDIR"
+}
+
+# ---------------------------------------------------------------------------
+# build_admin_srpm — source RPM for percona-valkey-admin
+#   The spec carries EIGHT Sources, not one: Source0 is the upstream tarball
+#   and Source1-7 are this packaging's own aux files (sysusers and tmpfiles
+#   fragments, systemd unit, env file, the in-package README, the payload
+#   build helper and the repo-root SBOM generator). None of them exist in the
+#   upstream tree, so they are staged into SOURCES here. They must all be in
+#   place before rpmbuild PARSES the spec, not merely before it builds:
+#   "%sysusers_create_compat %{SOURCE1}" expands at parse time via a
+#   shell-exec macro, and a missing Source1 yields a silently EMPTY %pre —
+#   no service user, and %attr falling back to root — rather than an error.
+#   The resulting SRPM embeds all eight, so build_admin_rpm's --rebuild needs
+#   nothing further.
+# ---------------------------------------------------------------------------
+build_admin_srpm() {
+    if [[ "$ADMIN_SRPM" -eq 0 ]]; then
+        log_info "valkey-admin SRC RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build src rpm on a Debian-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    find_and_copy_artifact "source_tarball" "${ADMIN_SRC_NAME}-${ADMIN_VERSION}.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    local admin_dir="${BUILDER_SCRIPT_DIR}/../valkey-admin"
+
+    rm -fr admin_rpmbuild
+    mkdir -vp admin_rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
+
+    cp -av "${admin_dir}/rpm/${ADMIN_PACKAGE_NAME}.spec" admin_rpmbuild/SPECS/
+    mv -fv "$tarfile" admin_rpmbuild/SOURCES/
+
+    # Source1-4: installed by %install. Source5: shipped as %doc.
+    cp -av "${admin_dir}/rpm/valkey-admin.sysusers" admin_rpmbuild/SOURCES/
+    cp -av "${admin_dir}/rpm/valkey-admin.service"  admin_rpmbuild/SOURCES/
+    cp -av "${admin_dir}/rpm/valkey-admin.tmpfiles" admin_rpmbuild/SOURCES/
+    cp -av "${admin_dir}/rpm/valkey-admin.env"      admin_rpmbuild/SOURCES/
+    cp -av "${admin_dir}/README.packaging.md"       admin_rpmbuild/SOURCES/
+    # Source6: executed in %build to assemble the server payload.
+    cp -av "${admin_dir}/common/build-server-payload.sh" admin_rpmbuild/SOURCES/
+    # Source7: executed in %install — the repo-root SBOM generator shared
+    # with the sibling module packages.
+    cp -av "${BUILDER_SCRIPT_DIR}/gen-module-sbom.sh" admin_rpmbuild/SOURCES/
+
+    sed -i "s/^Version:.*$/Version:        ${ADMIN_VERSION}/" \
+        "admin_rpmbuild/SPECS/${ADMIN_PACKAGE_NAME}.spec"
+    sed -i "s/^Release:.*$/Release:        ${RELEASE}%{?dist}/" \
+        "admin_rpmbuild/SPECS/${ADMIN_PACKAGE_NAME}.spec"
+
+    rpmbuild -bs --define "_topdir ${WORKDIR}/admin_rpmbuild" --define "dist .generic" \
+        "admin_rpmbuild/SPECS/${ADMIN_PACKAGE_NAME}.spec"
+
+    copy_artifacts "srpm" admin_rpmbuild/SRPMS/*.src.rpm
+}
+
+# ---------------------------------------------------------------------------
+# build_admin_rpm — binary RPM for percona-valkey-admin
+# ---------------------------------------------------------------------------
+build_admin_rpm() {
+    if [[ "$ADMIN_RPM" -eq 0 ]]; then
+        log_info "valkey-admin RPM will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "deb" ]]; then
+        die "Cannot build rpm on a Debian-based system"
+    fi
+
+    find_and_copy_artifact "srpm" "${ADMIN_PACKAGE_NAME}*.src.rpm"
+    local src_rpm="$FOUND_FILE"
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    rm -fr admin_rb
+    mkdir -vp admin_rb/{SOURCES,SPECS,BUILD,SRPMS,RPMS,BUILDROOT}
+    cp "$src_rpm" admin_rb/SRPMS/
+
+    rpmbuild --define "_topdir ${WORKDIR}/admin_rb" --define "dist .${OS_NAME}" \
+        --rebuild "admin_rb/SRPMS/${src_rpm}"
+
+    copy_artifacts "rpm" admin_rb/RPMS/*/*.rpm
+}
+
+# ---------------------------------------------------------------------------
+# admin_provide_rules_mounts — satisfy the /packaging and /repo-scripts paths
+#   that valkey-admin/debian/rules reaches into by absolute path.
+#
+#   Those two paths are a caller-provided contract, documented in that rules
+#   file: the aux files it installs (systemd unit, env file), the payload
+#   build helper and the SBOM generator are not in the upstream source tree,
+#   so none of them can be found relative to $(CURDIR). The standalone Docker
+#   harness (valkey-admin/build-deb.sh) supplies them as read-only bind
+#   mounts. This builder already runs inside the build container with the
+#   whole valkey-packaging checkout present, so it satisfies the same
+#   contract with symlinks — leaving debian/rules byte-identical to what the
+#   standalone harness builds and what the packaging test suite exercises,
+#   rather than forking it for a second caller.
+# ---------------------------------------------------------------------------
+admin_provide_rules_mounts() {
+    local admin_dir repo_scripts
+    admin_dir="$(cd "${BUILDER_SCRIPT_DIR}/../valkey-admin" 2>/dev/null && pwd)" \
+        || die "valkey-admin packaging directory not found next to scripts/"
+    repo_scripts="${BUILDER_SCRIPT_DIR}"
+
+    [ -f "${admin_dir}/common/build-server-payload.sh" ] \
+        || die "${admin_dir}/common/build-server-payload.sh is missing"
+    [ -f "${admin_dir}/rpm/valkey-admin.service" ] \
+        || die "${admin_dir}/rpm/valkey-admin.service is missing"
+    [ -f "${repo_scripts}/gen-module-sbom.sh" ] \
+        || die "${repo_scripts}/gen-module-sbom.sh is missing"
+
+    [[ "$(id -u)" -eq 0 ]] \
+        || die "Creating /packaging and /repo-scripts for debian/rules requires root"
+
+    # Only ever replace a symlink — one this function left behind in an
+    # earlier stage sharing the workspace, pointing at a stale checkout. If
+    # either path is a real directory it is a bind mount from the standalone
+    # harness, so leave it and its contents completely alone.
+    if [ -L /packaging ];    then rm -f /packaging;    fi
+    if [ -L /repo-scripts ]; then rm -f /repo-scripts; fi
+    if [ ! -e /packaging ];    then ln -sfn "${admin_dir}"    /packaging;    fi
+    if [ ! -e /repo-scripts ]; then ln -sfn "${repo_scripts}" /repo-scripts; fi
+
+    log_info "debian/rules inputs: /packaging -> ${admin_dir}, /repo-scripts -> ${repo_scripts}"
+}
+
+# ---------------------------------------------------------------------------
+# build_admin_source_deb — source DEB for percona-valkey-admin
+# ---------------------------------------------------------------------------
+build_admin_source_deb() {
+    if [[ "$ADMIN_SDEB" -eq 0 ]]; then
+        log_info "valkey-admin source deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build source deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${ADMIN_PACKAGE_NAME}"
+    local ver="${ADMIN_VERSION}"
+
+    rm -rf "${name}-${ver}" "${ADMIN_SRC_NAME}-${ver}" \
+           "${name}_${ver}".orig.tar.gz "${name}_${ver}-"*
+
+    # The tarball is named for the upstream source (valkey-admin-<ver>.tar.gz)
+    # while the DEB source package is percona-valkey-admin, so the orig
+    # tarball is a rename and the unpacked tree is moved to the source
+    # package's directory name. dpkg-source does not require the tarball's
+    # own top-level directory to match either of them.
+    find_and_copy_artifact "source_tarball" "${ADMIN_SRC_NAME}-${ver}.tar.gz"
+    local tarfile="$FOUND_FILE"
+
+    cp "$tarfile" "${name}_${ver}.orig.tar.gz"
+    tar xf "$tarfile"
+    mv "${ADMIN_SRC_NAME}-${ver}" "${name}-${ver}"
+
+    cp -r "${BUILDER_SCRIPT_DIR}/../valkey-admin/debian" "${name}-${ver}/debian"
+    chmod +x "${name}-${ver}/debian/rules"
+
+    sed -i "1s/(\([^)]*\))/(${ver}-${RELEASE})/" "${name}-${ver}/debian/changelog"
+
+    ( cd "${name}-${ver}" && dpkg-buildpackage -S -us -uc ) \
+        || die "valkey-admin source deb build failed"
+
+    copy_artifacts "source_deb" "${name}_${ver}-"*.dsc
+    copy_artifacts "source_deb" "${name}_${ver}.orig.tar.gz"
+    copy_artifacts "source_deb" "${name}_${ver}-"*.debian.tar.* 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# build_admin_deb — binary DEB for percona-valkey-admin
+# ---------------------------------------------------------------------------
+build_admin_deb() {
+    if [[ "$ADMIN_DEB" -eq 0 ]]; then
+        log_info "valkey-admin deb will not be created"
+        return 0
+    fi
+
+    if [[ "$OS" == "rpm" ]]; then
+        die "Cannot build deb on an RPM-based system"
+    fi
+
+    cd "$WORKDIR" || die "Cannot cd to $WORKDIR"
+
+    local name="${ADMIN_PACKAGE_NAME}"
+    local ver="${ADMIN_VERSION}"
+
+    # Clear any .deb from a previous run in this workspace BEFORE building, so
+    # the post-build non-empty check below cannot be satisfied by a leftover
+    # and copy_artifacts cannot ship one. Jenkins stages start clean, but a
+    # local or re-run invocation does not.
+    rm -f "${name}"*_"${ver}-"*_*.deb
+
+    for ext in 'dsc' 'orig.tar.gz'; do
+        find_and_copy_artifact "source_deb" "${name}_${ver}*.${ext}"
+    done
+    find_and_copy_artifact "source_deb" "${name}_${ver}*.debian.tar.*" || true
+
+    rm -rf "${name}-${ver}"
+    local dsc
+    dsc="$(basename "$(find . -maxdepth 1 -name "${name}_${ver}*.dsc" | sort | tail -n1)")"
+    [ -n "$dsc" ] || die "valkey-admin dsc not found — run --build_admin_src_deb first"
+    dpkg-source -x "$dsc" "${name}-${ver}"
+
+    admin_provide_rules_mounts
+
+    ( cd "${name}-${ver}" && deb_apply_codename && dpkg-buildpackage -b -us -uc ) \
+        || die "valkey-admin binary deb build failed"
+
+    # NOTE the wildcard between the source name and the version, which the
+    # sibling products' equivalent line does not have. Theirs match
+    # "<name>_<ver>-..." because their source and binary package names are the
+    # same string (percona-valkey-bloom builds percona-valkey-bloom). This
+    # source is percona-valkey-admin and it builds percona-valkey-admin-SERVER,
+    # so the un-wildcarded glob matches nothing, reaches cp as a literal, and
+    # aborts the stage after a perfectly good package was already built. The
+    # explicit count below turns that into a diagnosis instead of a bare
+    # "cp: cannot stat 'percona-valkey-admin_1.1.1-*_*.deb'".
+    local produced
+    produced=$(find . -maxdepth 1 -name "${name}*_${ver}-*_*.deb" | wc -l)
+    [ "$produced" -gt 0 ] \
+        || die "dpkg-buildpackage produced no .deb matching ${name}*_${ver}-*_*.deb"
+
+    copy_artifacts "deb" "${name}"*_"${ver}-"*_*.deb
+}
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -1937,6 +2358,15 @@ BUNDLE_RPM=0
 BUNDLE_SDEB=0
 BUNDLE_DEB=0
 BUNDLE_VERSION="$DEFAULT_BUNDLE_VERSION"
+ADMIN_DEPS=0
+ADMIN_SOURCE=0
+ADMIN_SRPM=0
+ADMIN_RPM=0
+ADMIN_SDEB=0
+ADMIN_DEB=0
+ADMIN_REPO="$DEFAULT_ADMIN_REPO"
+ADMIN_VERSION="$DEFAULT_ADMIN_VERSION"
+ADMIN_BRANCH=""
 
 parse_arguments "$@"
 
@@ -1944,6 +2374,10 @@ parse_arguments "$@"
 JSON_BRANCH="${JSON_BRANCH:-$JSON_VERSION}"
 BLOOM_BRANCH="${BLOOM_BRANCH:-$BLOOM_VERSION}"
 SEARCH_BRANCH="${SEARCH_BRANCH:-$SEARCH_VERSION}"
+# valkey-admin tags its releases with a leading "v" (v1.1.1), unlike the
+# module repos above whose tags are the bare version — mirroring the
+# "refs/tags/v%{version}" in rpm/percona-valkey-admin.spec's Source0 URL.
+ADMIN_BRANCH="${ADMIN_BRANCH:-v$ADMIN_VERSION}"
 
 # PRODUCT_FULL is set after parsing so --version can override; exported for child processes
 export PRODUCT_FULL="${PRODUCT}-${VERSION}-${RELEASE}"
@@ -1959,11 +2393,13 @@ install_deps_json
 install_deps_bloom
 install_deps_search
 install_deps_bundle
+install_deps_admin
 get_sources
 get_json_sources
 get_bloom_sources
 get_search_sources
 get_bundle_sources
+get_admin_sources
 build_srpm
 build_source_deb
 build_rpm
@@ -1984,3 +2420,7 @@ build_bundle_srpm
 build_bundle_rpm
 build_bundle_source_deb
 build_bundle_deb
+build_admin_srpm
+build_admin_rpm
+build_admin_source_deb
+build_admin_deb

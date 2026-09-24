@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+  if ! getent passwd valkey-admin >/dev/null; then
+    adduser --system --group --no-create-home \
+            --home /var/lib/valkey-admin \
+            --shell /usr/sbin/nologin valkey-admin
+  fi
+  chown valkey-admin:valkey-admin /var/lib/valkey-admin
+  chmod 0750 /var/lib/valkey-admin
+  # dh_fixperms normalizes every shipped directory to 0755 root:root before
+  # this scriptlet ever runs, same as it does for the env file below. The
+  # RPM ships this directory as 0750 root:valkey-admin in package metadata
+  # (see rpm/percona-valkey-admin.spec's %files); match it here rather than leaving
+  # config that can hold VALKEY_PASSWORD sitting in a world-readable
+  # directory.
+  chown root:valkey-admin /etc/valkey-admin
+  chmod 0750 /etc/valkey-admin
+  chown root:valkey-admin /etc/valkey-admin/valkey-admin.env
+  chmod 0640 /etc/valkey-admin/valkey-admin.env
+fi
+#DEBHELPER#
