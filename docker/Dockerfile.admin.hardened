@@ -1,0 +1,159 @@
+# Base: Docker Hardened Image (DHI) Community — debian-base (dhi.io).
+# Pinned by digest for reproducible builds and to satisfy Docker Scout's
+# "outdated base images" policy. Tag is kept alongside the digest for
+# readability; the digest is what actually pins the build.
+# Refresh after a base bump with:
+#   docker pull dhi.io/debian-base:<tag>
+#   docker inspect --format '{{index .RepoDigests 0}}' dhi.io/debian-base:<tag>
+ARG BASE_IMAGE=dhi.io/debian-base
+ARG BASE_DEV_TAG=trixie-dev
+ARG BASE_DEV_DIGEST=sha256:e2ab6c4b13bcb50e25d6d9a8b2f36b3ceaa620ffb6fbe4d7fb70cc50c5e77877
+ARG BASE_RUNTIME_TAG=trixie
+ARG BASE_RUNTIME_DIGEST=sha256:e440d0dabdc54675aa9601f0d794c39f549b6178946cfeffd3b5a31da33ec2d3
+
+FROM ${BASE_IMAGE}:${BASE_DEV_TAG}@${BASE_DEV_DIGEST} AS package-install
+
+ARG REPO_CHANNEL=testing
+ARG ADMIN_VERSION=1.2.0
+
+# Install valkey-admin from the Percona repo, then add Syft (build stage only —
+# it is never copied into the runtime image) for SBOM generation below.
+#
+# The service account is created before the package so its postinst finds it
+# already present and leaves it alone; that fixes the uid/gid in the image
+# instead of letting adduser pick whatever is free at build time.
+RUN set -eux; \
+	export DEBIAN_FRONTEND=noninteractive; \
+	printf 'Dpkg::Options { "--force-confdef"; "--force-confold"; };\n' > /etc/apt/apt.conf.d/90-confdef; \
+	printf 'Acquire::Retries "5";\nAcquire::Retries::Delay "true";\nAcquire::http::Timeout "120";\nAcquire::https::Timeout "120";\nAcquire::http::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-retries; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
+		ca-certificates \
+		wget \
+		gnupg \
+		gpgv \
+		curl \
+		lsb-release \
+	; \
+	groupadd -r -g 998 valkey-admin; \
+	useradd -r -u 998 -g valkey-admin -d /var/lib/valkey-admin -s /usr/sbin/nologin valkey-admin; \
+	apt-get upgrade -y; \
+	wget -q -O /tmp/percona-release.deb https://repo.percona.com/apt/percona-release_latest.generic_all.deb; \
+	dpkg -i /tmp/percona-release.deb; \
+	percona-release enable valkey-91 ${REPO_CHANNEL}; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends percona-valkey-admin-server; \
+	rm -rf /var/lib/apt/lists/* /tmp/*.deb; \
+	mkdir -p /usr/local/bin; \
+	curl -sSfL https://get.anchore.io/syft | sh -s -- -b /usr/local/bin; \
+	node --version; \
+	syft version
+
+# Fail the build rather than ship an image whose version label does not match
+# the package the repo channel actually served.
+RUN set -eux; \
+	installed="$(dpkg-query -W -f='${Version}' percona-valkey-admin-server | cut -d- -f1)"; \
+	if [ "${installed}" != "${ADMIN_VERSION}" ]; then \
+		echo "image is labelled ${ADMIN_VERSION} but ${REPO_CHANNEL} served ${installed}"; \
+		exit 1; \
+	fi
+
+# Assemble the runtime filesystem in the build stage, then generate a real SBOM
+# (SPDX + CycloneDX) by scanning the assembled /runtime rootfs. Scanning
+# /runtime rather than / keeps the inventory limited to what the image actually
+# ships — no build-only tooling such as wget/gnupg/syft.
+#
+# Unlike the server image this is a Node application, so the runtime needs the
+# node binary, the shared libraries node itself pulls in, and the libraries
+# needed by every compiled addon in the payload — valkey-glide ships a native
+# .node module, which ldd on the node binary alone would not account for.
+RUN set -eux; \
+	mkdir -p /runtime/usr/bin /runtime/usr/lib /runtime/usr/local/bin /runtime/usr/local /runtime/usr/share /runtime/etc /runtime/var/lib; \
+	\
+	cp -a /usr/lib/percona-valkey-admin-server /runtime/usr/lib/percona-valkey-admin-server; \
+	cp -a /etc/valkey-admin /runtime/etc/valkey-admin; \
+	cp -L "$(command -v node)" /runtime/usr/bin/node; \
+	\
+	# Debian builds node with externalized builtins: it reads JS out of \
+	# /usr/share/nodejs at startup (cjs-module-lexer, undici, acorn...) and \
+	# aborts with "Cannot load externalized builtin" without them. ldd on the \
+	# binary cannot reveal this, so the directory is copied explicitly. \
+	cp -a /usr/share/nodejs /runtime/usr/share/nodejs; \
+	\
+	# Collect the shared libraries for node and for every compiled addon. \
+	# Paths are preserved so they resolve identically at runtime, with /lib \
+	# normalised to /usr/lib (on trixie /lib is a symlink into /usr/lib). \
+	{ echo /runtime/usr/bin/node; find /runtime/usr/lib/percona-valkey-admin-server -name '*.node' -type f; } \
+	| while read -r obj; do \
+		ldd "$obj" 2>/dev/null | awk '/=>/ {print $3}' | while read -r lib; do \
+			if [ -f "$lib" ]; then \
+				libdir="$(dirname "$lib" | sed 's|^/lib|/usr/lib|')"; \
+				mkdir -p "/runtime${libdir}"; \
+				cp -Ln "$lib" "/runtime${libdir}/" || true; \
+			fi; \
+		done; \
+	done; \
+	\
+	# TLS to Valkey and to any HTTPS endpoint needs the trust store. \
+	mkdir -p /runtime/etc/ssl/certs; \
+	cp -a /etc/ssl/certs/ca-certificates.crt /runtime/etc/ssl/certs/; \
+	\
+	mkdir -p /runtime/var/lib/valkey-admin; \
+	chown -R 998:998 /runtime/var/lib/valkey-admin /runtime/etc/valkey-admin; \
+	chmod 750 /runtime/var/lib/valkey-admin; \
+	\
+	grep '^valkey-admin:' /etc/passwd > /runtime/etc/passwd.valkey-admin; \
+	grep '^root:' /etc/passwd >> /runtime/etc/passwd.valkey-admin; \
+	grep '^valkey-admin:' /etc/group > /runtime/etc/group.valkey-admin; \
+	grep '^root:' /etc/group >> /runtime/etc/group.valkey-admin; \
+	\
+	syft scan dir:/runtime \
+		--source-name percona-valkey-admin --source-version "${ADMIN_VERSION}" \
+		-o spdx-json=/tmp/valkey-admin.spdx.json \
+		-o cyclonedx-json=/tmp/valkey-admin.cdx.json; \
+	cp /tmp/valkey-admin.spdx.json /tmp/valkey-admin.cdx.json /runtime/usr/local/
+
+COPY admin-docker-entrypoint.sh /runtime/usr/local/bin/admin-docker-entrypoint.sh
+RUN chmod 755 /runtime/usr/local/bin/admin-docker-entrypoint.sh
+
+FROM ${BASE_IMAGE}:${BASE_RUNTIME_TAG}@${BASE_RUNTIME_DIGEST}
+
+ARG ADMIN_VERSION=1.2.0
+
+ENV VALKEY_ADMIN_VERSION=${ADMIN_VERSION}
+
+LABEL org.opencontainers.image.authors="info@percona.com" \
+      org.opencontainers.image.source="https://github.com/valkey-io/valkey-admin" \
+      org.opencontainers.image.vendor="Percona" \
+      org.opencontainers.image.title="Percona Valkey Admin (Hardened)" \
+      org.opencontainers.image.description="Hardened Percona Valkey Admin image built on Docker Hardened Image (DHI)" \
+      org.opencontainers.image.version="${ADMIN_VERSION}" \
+      org.opencontainers.image.base.name="dhi.io/debian-base:trixie" \
+      org.opencontainers.image.base.digest="sha256:e440d0dabdc54675aa9601f0d794c39f549b6178946cfeffd3b5a31da33ec2d3"
+
+COPY --from=package-install /runtime/etc/passwd.valkey-admin /etc/passwd
+COPY --from=package-install /runtime/etc/group.valkey-admin /etc/group
+
+COPY --from=package-install /runtime/usr/bin/node /usr/bin/node
+COPY --from=package-install /runtime/usr/lib/ /usr/lib/
+COPY --from=package-install /runtime/usr/share/nodejs/ /usr/share/nodejs/
+COPY --from=package-install /runtime/usr/local/bin/ /usr/local/bin/
+COPY --from=package-install /runtime/usr/local/valkey-admin.spdx.json /usr/local/
+COPY --from=package-install /runtime/usr/local/valkey-admin.cdx.json /usr/local/
+COPY --from=package-install /runtime/etc/ssl/certs/ /etc/ssl/certs/
+COPY --chown=valkey-admin:valkey-admin --from=package-install /runtime/etc/valkey-admin/ /etc/valkey-admin/
+COPY --chown=valkey-admin:valkey-admin --from=package-install /runtime/var/lib/valkey-admin/ /var/lib/valkey-admin/
+
+VOLUME ["/var/lib/valkey-admin"]
+WORKDIR /var/lib/valkey-admin
+
+USER valkey-admin
+
+# node is the only HTTP client in the image; there is no curl to health-check with.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+	CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/admin-docker-entrypoint.sh"]
+CMD ["node", "/usr/lib/percona-valkey-admin-server/apps/server/dist/index.cjs"]

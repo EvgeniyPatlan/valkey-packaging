@@ -1,0 +1,109 @@
+# Base: Red Hat Universal Base Image 9 (minimal). Pinned by digest for
+# reproducible builds and to satisfy Docker Scout's "outdated base images"
+# policy. The tag is kept for readability; the digest is what pins the build.
+# Refresh after a base bump with:
+#   docker pull redhat/ubi9-minimal:<tag>
+#   docker inspect --format '{{index .RepoDigests 0}}' redhat/ubi9-minimal:<tag>
+ARG BASE_IMAGE=redhat/ubi9-minimal
+ARG BASE_TAG=latest
+ARG BASE_DIGEST=sha256:850143255ee0d1915f09aaa09f6ed31f24086ba605c323badfbefa95b8c52b0e
+
+FROM ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}
+
+ARG ADMIN_VERSION=1.2.0
+
+LABEL org.opencontainers.image.authors="info@percona.com" \
+      org.opencontainers.image.source="https://github.com/valkey-io/valkey-admin" \
+      org.opencontainers.image.vendor="Percona" \
+      org.opencontainers.image.title="Percona Valkey Admin" \
+      org.opencontainers.image.description="Percona Valkey Admin image built from Percona RPM package" \
+      org.opencontainers.image.version="${ADMIN_VERSION}" \
+      org.opencontainers.image.base.name="redhat/ubi9-minimal:latest" \
+      org.opencontainers.image.base.digest="sha256:850143255ee0d1915f09aaa09f6ed31f24086ba605c323badfbefa95b8c52b0e"
+
+RUN microdnf -y update && \
+    microdnf -y install --nodocs glibc-langpack-en
+
+ENV VALKEY_ADMIN_VERSION=${ADMIN_VERSION}
+
+ARG REPO_CHANNEL=testing
+
+# check repository package signature in secure way
+RUN set -ex; \
+    export GNUPGHOME="$(mktemp -d)"; \
+    gpg --batch --keyserver keyserver.ubuntu.com --recv-keys 4D1BB29D63D98E422B2113B19334A25F8507EFA5 99DB70FAE1D7CE227FB6488205B555B38483C65D; \
+    gpg --batch --export --armor 4D1BB29D63D98E422B2113B19334A25F8507EFA5 > ${GNUPGHOME}/PERCONA-PACKAGING-KEY; \
+    gpg --batch --export --armor 99DB70FAE1D7CE227FB6488205B555B38483C65D > ${GNUPGHOME}/RPM-GPG-KEY-centosofficial; \
+    rpmkeys --import ${GNUPGHOME}/PERCONA-PACKAGING-KEY ${GNUPGHOME}/RPM-GPG-KEY-centosofficial; \
+    microdnf install -y --nodocs findutils; \
+    curl -Lf -o /tmp/percona-release.rpm https://repo.percona.com/yum/percona-release-latest.noarch.rpm; \
+    rpmkeys --checksig /tmp/percona-release.rpm; \
+    rpm -i /tmp/percona-release.rpm; \
+    rm -rf "$GNUPGHOME" /tmp/percona-release.rpm; \
+    rpm --import /etc/pki/rpm-gpg/PERCONA-PACKAGING-KEY; \
+    percona-release disable all; \
+    percona-release enable valkey-91 ${REPO_CHANNEL}; \
+    \
+    # Node ships as a DNF module on EL9 and no stream is enabled by default, so
+    # every modular nodejs is hidden by modular filtering and the package's
+    # "(nodejs >= 1:20 or nodejs22 >= 1:22)" cannot resolve -- the only visible
+    # provider is a non-modular nodejs 1:16, which that floor correctly rejects.
+    # Selecting a stream is what makes Node 22 installable; the floor must not
+    # be relaxed instead, since epoch 1 on the provider would let an unqualified
+    # ">= 20" match Node 16 and the service would then fail at runtime.
+    microdnf -y module enable nodejs:22; \
+    \
+    # install_weak_deps=0 keeps nodejs-docs (98MB) and nodejs-full-i18n out of
+    # the image. Dropping full-i18n leaves Node with small-icu, so server-side
+    # Intl formats with English rules only; the UI formats in the browser.
+    microdnf -y install --nodocs --setopt=install_weak_deps=0 \
+        tar \
+        gawk \
+        procps-ng \
+        shadow-utils \
+        percona-valkey-admin-server; \
+    microdnf clean all; \
+    rm -rf /var/cache/dnf /var/cache/yum
+
+# Fail the build rather than ship an image whose version label does not match
+# the package the repo channel actually served.
+RUN set -ex; \
+    installed="$(rpm -q --qf '%{VERSION}' percona-valkey-admin-server)"; \
+    if [ "${installed}" != "${VALKEY_ADMIN_VERSION}" ]; then \
+        echo "image is labelled ${VALKEY_ADMIN_VERSION} but ${REPO_CHANNEL} served ${installed}"; \
+        exit 1; \
+    fi; \
+    node --version
+
+# Generate a real SBOM (SPDX + CycloneDX) of the installed image, then remove
+# the generator so it is not shipped. Syft scans the RPM database for an
+# accurate inventory of every installed package; /tmp is excluded so neither
+# the syft binary nor its own output appear in the catalog.
+RUN set -ex; \
+    mkdir -p /tmp/sbom-bin; \
+    curl -sSfL https://get.anchore.io/syft | sh -s -- -b /tmp/sbom-bin; \
+    /tmp/sbom-bin/syft scan dir:/ \
+        --source-name percona-valkey-admin --source-version "${VALKEY_ADMIN_VERSION}" \
+        --exclude './tmp' --exclude './proc' --exclude './sys' --exclude './dev' \
+        -o spdx-json=/usr/local/valkey-admin.spdx.json \
+        -o cyclonedx-json=/usr/local/valkey-admin.cdx.json; \
+    rm -rf /tmp/sbom-bin
+
+# The package owns /var/lib/valkey-admin as 0750 root:valkey-admin; the service
+# account must own it outright for the collectors to create per-node subdirs.
+RUN chown valkey-admin:valkey-admin /var/lib/valkey-admin
+VOLUME /var/lib/valkey-admin
+WORKDIR /var/lib/valkey-admin
+
+COPY admin-docker-entrypoint.sh /usr/local/bin/
+RUN chmod 755 /usr/local/bin/admin-docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/admin-docker-entrypoint.sh"]
+
+USER valkey-admin
+
+# node is the only HTTP client in the image; curl is deliberately not installed.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+EXPOSE 8080
+CMD ["node", "/usr/lib/percona-valkey-admin-server/apps/server/dist/index.cjs"]
