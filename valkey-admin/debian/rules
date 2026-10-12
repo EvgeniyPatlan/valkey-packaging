@@ -4,7 +4,7 @@ export DH_VERBOSE = 1
 %:
 	dh $@
 
-# The source root here is the extracted upstream valkey-admin-1.1.1 release
+# The source root here is the extracted upstream valkey-admin release
 # tarball (build-deb.sh assembles it that way; see README.packaging.md).
 # packaging/ is not part of that tarball -- it never was, on any version --
 # so the build helper and the aux files this package installs are not in

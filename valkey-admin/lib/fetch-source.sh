@@ -24,12 +24,12 @@
 #     equivalent extraction from Source0 inside the build container.
 set -euo pipefail
 
-PACKAGE_VERSION="1.1.1"
+PACKAGE_VERSION="1.2.0"
 # Pinned sha256 of the upstream release tarball for PACKAGE_VERSION, recorded
 # on the very next line so bumping the version obviously requires updating
 # this digest in the same change -- nothing derives one from the other.
 # Reproduce with: curl -fsSL <Source0 URL for the new version> | sha256sum
-PACKAGE_SOURCE_SHA256="9ec308a04ea51a84a547afa31efb6753abfd2d844d50f0805373027b6524344c"
+PACKAGE_SOURCE_SHA256="18f4edb82929f07ef4252a8535fbbad986187db6abc3a84f941d43dbf7e54843"
 
 VALKEY_ADMIN_SOURCE_URL_BASE="https://github.com/valkey-io/valkey-admin/archive/refs/tags"
 
