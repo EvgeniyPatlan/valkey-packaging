@@ -1,3 +1,12 @@
+percona-valkey-admin (1.2.0-1) unstable; urgency=medium
+
+  * Update to upstream valkey-admin 1.2.0.
+  * Reset the debian revision to 1, tracking the RPM Release reset: the
+    upstream version bump now supplies the headroom that Release 2 was
+    carrying for the pre-rename package takeover.
+
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Mon, 12 Oct 2026 11:07:56 +0000
+
 percona-valkey-admin (1.1.1-2) unstable; urgency=medium
 
   * Track the RPM Release bump to 2 so the two builders' version

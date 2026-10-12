@@ -11,9 +11,9 @@ Name:           %{product_name}
 # still resolves to a real EVR instead of the literal, unexpanded
 # "%%{_version}" -- build-rpm.sh's "--define _version $VERSION" still
 # overrides this default when it runs the real build.
-%{!?_version: %global _version 1.1.1}
+%{!?_version: %global _version 1.2.0}
 Version:        %{_version}
-Release:        2%{?dist}
+Release:        1%{?dist}
 Summary:        Administration tool for Valkey clusters and standalone instances
 License:        Apache-2.0
 URL:            https://valkey-admin.valkey.io
@@ -86,24 +86,33 @@ Requires(pre): shadow-utils
 Requires(post): systemd
 Requires(preun): systemd
 Requires(postun): systemd
-# Release is bumped to 2 specifically to give Obsoletes headroom over a
-# hypothetical last pre-rename valkey-admin-server at 1.1.1-1: a strict
-# "< %%{version}-%%{release}" now reads as "< 1.1.1-2", which correctly
-# matches an installed valkey-admin-server at 1.1.1-1 (confirmed directly
-# by tests/test-upgrade.sh: dnf schedules its removal and the
-# rename install resolves cleanly over every path the two packages share --
-# the systemd unit, the sysusers/tmpfiles fragments, the env file, the data
-# directory, all deliberately unbranded and identical between the two
-# packages). This also covers a cross-dist edge a same-release "<=" form
-# does not: EVRs compare dist tags as part of the release, so 1.1.1-1.el9
-# sorts higher than 1.1.1-1.el8, and an operator with the el9 old package
-# installing this el8 new package would get no obsoletion under
-# "<= 1.1.1-1.el8" and hit the file conflict again. Under "< 1.1.1-2.el8"
-# it still matches, because release comparison reaches the leading "1" vs
-# "2" before the dist suffix is ever considered. Because Provides sits at
-# %%{version}-%%{release} (1.1.1-2) and Obsoletes is strictly less than
-# that, the two never overlap and rpmlint's self-obsoletion check has
-# nothing to flag -- no filter needed in rpmlint.toml.
+# Obsoletes/Provides take over from the pre-rename valkey-admin-server
+# package. A strict "< %%{version}-%%{release}" reads as "< 1.2.0-1" here,
+# which matches every build that ever shipped under the old name (the last
+# of those was 1.1.1-1), so the rename resolves cleanly over every path the
+# two packages share -- the systemd unit, the sysusers/tmpfiles fragments,
+# the env file, the data directory, all deliberately unbranded and
+# identical between them. Exercised by tests/test-upgrade.sh, whose fixture
+# is a pre-rename valkey-admin-server at 1.1.1-1.
+#
+# Release needs no artificial headroom any more, which is why it is back to
+# 1. It carried 2 only while this packaging shipped the SAME upstream
+# version as the last pre-rename build (1.1.1), where a strict "<" against
+# an identical EVR matched nothing and the two packages collided over their
+# shared paths. The upstream bump to 1.2.0 supplies that headroom in the
+# version itself. If this packaging ever again ships an upstream version
+# that was already released under some other name, the release number has
+# to do that work instead.
+#
+# The strict "<" form also covers a cross-dist edge that a same-version
+# "<=" would not: EVRs compare dist tags as part of the release, so
+# 1.1.1-1.el9 sorts higher than 1.1.1-1.el8, and an operator holding the
+# el9 old package while installing an el8 new one would get no obsoletion
+# from "<= 1.1.1-1.el8". Here the version comparison settles it long before
+# any dist suffix is reached. And because Provides sits at
+# %%{version}-%%{release} while Obsoletes is strictly below it, the two
+# never overlap and rpmlint's self-obsoletion check has nothing to flag --
+# no filter needed in rpmlint.toml.
 Provides:       valkey-admin-server = %{version}-%{release}
 Obsoletes:      valkey-admin-server < %{version}-%{release}
 # %%sysusers_requires_compat is undefined on EL8 (no systemd-rpm-macros
@@ -241,6 +250,12 @@ exit 0
 %dir %attr(0750,valkey-admin,valkey-admin) %{_sharedstatedir}/valkey-admin
 
 %changelog
+* Mon Oct 12 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 1.2.0-1
+- Update to upstream valkey-admin 1.2.0
+- Reset Release to 1: the upstream version bump now supplies the Obsoletes
+  headroom over the pre-rename valkey-admin-server that Release 2 was
+  carrying
+
 * Tue Sep 22 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 1.1.1-2
 - Bump Release to 2 and switch Obsoletes to the strict-less-than form so
   the rename upgrade resolves without a same-EVR self-obsoletion overlap

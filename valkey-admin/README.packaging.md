@@ -247,9 +247,12 @@ package's own version authority disagrees with `lib/fetch-source.sh`'s
 `PACKAGE_VERSION`, and each also refuses when its own release/revision digit
 disagrees with the other builder's — the RPM `Release:` tag and the DEB
 revision (the `-N` suffix in `debian/changelog`) must move together, since
-the RPM side depends on `Release` being ahead of whatever it last shipped
-(see the `Obsoletes` comment in the spec) and a DEB build left behind at a
-stale revision would make this doc's "move together" claim false.
+the RPM side's `Obsoletes` takeover depends on its EVR outranking the last
+build released under the pre-rename name — an upstream version bump supplies
+that on its own, and only when the upstream version is unchanged does
+`Release` have to do the work (see the `Obsoletes` comment in the spec) — and
+a DEB build left behind at a stale revision would make this doc's "move
+together" claim false.
 
 - `lib/fetch-source.sh` — the `PACKAGE_VERSION` both builders read as ground
   truth, and the upstream tag both builders fetch. There is no local
