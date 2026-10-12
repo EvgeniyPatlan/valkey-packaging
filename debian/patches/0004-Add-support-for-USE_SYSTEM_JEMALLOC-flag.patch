@@ -2,8 +2,8 @@ From: Chris Lamb <lamby@debian.org>
 Date: Mon, 28 Apr 2025 15:45:49 -0300
 Subject: Add support for USE_SYSTEM_JEMALLOC flag.
 
-Last-Update: 14-04-2026
-Updated for Valkey 9.1 (deps/Makefile:distclean dropped fast_float_c_interface and gained rm -f .make-*)
+Last-Update: 12-10-2026
+Updated for Valkey 9.2 (deps/Makefile:distclean gained lz4; src/object.c section comment renamed)
 ---
  deps/Makefile |  2 ++
  src/Makefile  |  5 +++++
@@ -14,10 +14,11 @@ Updated for Valkey 9.1 (deps/Makefile:distclean dropped fast_float_c_interface a
  src/zmalloc.h |  4 ++++
  7 files changed, 35 insertions(+)
 
+
 diff --git a/deps/Makefile b/deps/Makefile
 --- a/deps/Makefile
 +++ b/deps/Makefile
-@@ -39,7 +39,9 @@ distclean:
+@@ -39,7 +39,9 @@
  	-(cd libvalkey && $(MAKE) clean) > /dev/null || true
  	-(cd linenoise && $(MAKE) clean) > /dev/null || true
  	-(cd lua && $(MAKE) clean) > /dev/null || true
@@ -26,12 +27,11 @@ diff --git a/deps/Makefile b/deps/Makefile
 +endif
  	-(cd hdr_histogram && $(MAKE) clean) > /dev/null || true
  	-(cd fpconv && $(MAKE) clean) > /dev/null || true
- 	-(rm -f .make-*)
+ 	-(cd lz4 && $(MAKE) clean) > /dev/null || true
 diff --git a/src/Makefile b/src/Makefile
-index ac88fc0..8aefc33 100644
 --- a/src/Makefile
 +++ b/src/Makefile
-@@ -289,10 +289,15 @@ ifeq ($(MALLOC),tcmalloc_minimal)
+@@ -371,10 +371,15 @@
  endif
  
  ifeq ($(MALLOC),jemalloc)
@@ -48,10 +48,9 @@ index ac88fc0..8aefc33 100644
  ifeq ($(USE_LTTNG),yes)
  	FINAL_CFLAGS+=-DUSE_LTTNG
 diff --git a/src/debug.c b/src/debug.c
-index 4a57cd4..88b37af 100644
 --- a/src/debug.c
 +++ b/src/debug.c
-@@ -82,6 +82,10 @@ void bugReportEnd(int killViaSignal, int sig);
+@@ -92,6 +92,10 @@
  void logStackTrace(void *eip, int uplevel, int current_thread);
  void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret);
  
@@ -63,10 +62,9 @@ index 4a57cd4..88b37af 100644
  
  /* Compute the sha1 of string at 's' with 'len' bytes long.
 diff --git a/src/object.c b/src/object.c
-index 9ddd412..d60d867 100644
 --- a/src/object.c
 +++ b/src/object.c
-@@ -45,6 +45,10 @@
+@@ -50,6 +50,10 @@
  /* For objects with large embedded keys, we reserve space for an expire field,
   * so if expire is set later, we don't need to reallocate the object. */
  #define KEY_SIZE_TO_INCLUDE_EXPIRE_THRESHOLD 128
@@ -75,10 +73,9 @@ index 9ddd412..d60d867 100644
 +#define je_malloc_stats_print malloc_stats_print
 +#endif
  
- /* ===================== Creation and parsing of objects ==================== */
+ /* ===================== Accessor functions for serverObject fields ==================== */
  
 diff --git a/src/sds.c b/src/sds.c
-index 7843363..ea1551d 100644
 --- a/src/sds.c
 +++ b/src/sds.c
 @@ -39,6 +39,10 @@
@@ -93,10 +90,9 @@ index 7843363..ea1551d 100644
  
  int sdsHdrSize(char type) {
 diff --git a/src/zmalloc.c b/src/zmalloc.c
-index 24dd11a..5c8e17a 100644
 --- a/src/zmalloc.c
 +++ b/src/zmalloc.c
-@@ -80,11 +80,23 @@ void zlibc_free(void *ptr) {
+@@ -85,11 +85,23 @@
  #define free(ptr) tc_free(ptr)
  /* Explicitly override malloc/free etc when using jemalloc. */
  #elif defined(USE_JEMALLOC)
@@ -121,7 +117,6 @@ index 24dd11a..5c8e17a 100644
  #define thread_local _Thread_local
  
 diff --git a/src/zmalloc.h b/src/zmalloc.h
-index 68b4df6..6bfab3d 100644
 --- a/src/zmalloc.h
 +++ b/src/zmalloc.h
 @@ -53,7 +53,11 @@
@@ -136,4 +131,3 @@ index 68b4df6..6bfab3d 100644
  #else
  #error "Newer version of jemalloc required"
  #endif
-

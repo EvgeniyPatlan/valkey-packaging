@@ -3,8 +3,13 @@
 
 DPKG_EXPORT_BUILDFLAGS = 1
 include /usr/share/dpkg/buildflags.mk
+# DEB_VERSION_UPSTREAM, used by the zstd check in override_dh_auto_build.
+include /usr/share/dpkg/pkg-info.mk
 
 export BUILD_TLS = yes
+# Zstandard streaming compression, new in Valkey 9.2. Upstream links the
+# static libzstd.a shipped in libzstd-dev and locates it via pkg-config.
+export BUILD_ZSTD = yes
 export CFLAGS CPPFLAGS LDFLAGS
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=+lto
 export DEB_CFLAGS_MAINT_APPEND = -I/usr/include/liblzf
@@ -40,6 +45,20 @@ ifeq ($(LUA_MODULE),yes)
 else
 	dh_auto_build -- V=1 USE_SYSTEM_JEMALLOC=yes USE_SYSTEMD=yes USE_JEMALLOC=yes PREFIX=/usr
 endif
+
+	# A source tree that predates BUILD_ZSTD ignores the flag silently
+	# instead of failing, so confirm the feature really was compiled in:
+	# src/.make-settings records FINAL_CFLAGS, which carries -DHAVE_ZSTD
+	# when zstd is enabled. A release must have it; a release candidate cut
+	# before zstd landed (9.2.0-rc1) only warns.
+	if grep -q -- '-DHAVE_ZSTD' src/.make-settings 2>/dev/null; then \
+		:; \
+	elif echo '$(DEB_VERSION_UPSTREAM)' | grep -q 'rc'; then \
+		echo "warning: BUILD_ZSTD=yes was ignored: $(DEB_VERSION_UPSTREAM) predates zstd support" >&2; \
+	else \
+		echo "error: BUILD_ZSTD=yes was requested but zstd support was not compiled in" >&2; \
+		exit 1; \
+	fi
 
 # Build documentation if not nodoc profile
 ifeq (,$(filter nodoc,$(DEB_BUILD_PROFILES)))

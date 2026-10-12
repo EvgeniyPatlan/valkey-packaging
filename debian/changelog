@@ -1,3 +1,16 @@
+percona-valkey (9.2.0-1) unstable; urgency=medium
+
+  * Bump to Valkey 9.2.0 (built from the upstream 9.2.0 tag).
+  * Build with BUILD_ZSTD=yes for Zstandard streaming compression, linking the
+    static libzstd shipped in libzstd-dev; upstream requires >= 1.4.7 and links
+    it statically.
+  * Record the lz4 that Valkey 9.2 vendors in deps/lz4 in debian/copyright.
+  * Refresh the patch series against the 9.2 source: 0002 keeps only the
+    deps/lz4 CPPFLAGS hunk, since 9.2 passes CPPFLAGS through src/, linenoise,
+    fpconv and hdr_histogram itself.
+
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Mon, 12 Oct 2026 18:00:00 +0000
+
 percona-valkey (9.1.2-1) unstable; urgency=medium
 
   * Bump to Valkey 9.1.2 (built from the upstream 9.1.2 tag).

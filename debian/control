@@ -10,6 +10,7 @@ Build-Depends:
  liblua5.1-dev,
  liblzf-dev,
  libssl-dev (>= 1.1.1),
+ libzstd-dev (>= 1.4.7),
  libsystemd-dev [linux-any],
  lua-bitop-dev,
  lua-cjson-dev,
