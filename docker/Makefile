@@ -1,4 +1,6 @@
 .PHONY: build build-hardened build-rpm run stop clean logs test test-hardened test-rpm help all \
+        build-admin build-admin-rpm build-admin-hardened test-admin test-admin-rpm test-admin-hardened \
+        buildx-admin buildx-admin-hardened \
         build-bundle build-bundle-hardened build-bundle-rpm test-bundle test-bundle-hardened test-bundle-rpm \
         build-mod build-mods build-mod-json build-mod-bloom build-mod-search build-mod-ldap build-mod-audit \
         test-mod test-mods test-mod-json test-mod-bloom test-mod-search test-mod-ldap test-mod-audit \
@@ -14,6 +16,12 @@ TAG_RPM := $(VALKEY_VERSION)
 
 # --- Module artifact images (thin, self-contained; injected in k8s) ----------
 MOD_IMAGE_PREFIX := perconalab/valkey-mod
+ADMIN_IMAGE_NAME := perconalab/valkey-admin
+
+# valkey-admin is a separate product on its own version line.
+VALKEY_ADMIN_VERSION := 1.2.0
+TAG_ADMIN            := $(VALKEY_ADMIN_VERSION)
+TAG_ADMIN_HARDENED   := $(VALKEY_ADMIN_VERSION)-hardened
 
 MOD_VERSION_json   := 1.0.2
 MOD_VERSION_bloom  := 1.0.1
@@ -51,6 +59,9 @@ help:
 	@echo "  build-mods     - Build all 5 thin module artifact images (json/bloom/search/ldap/audit)"
 	@echo "  test-mods      - Inject each module into a stock server and verify it loads"
 	@echo "  buildx-mods    - Build+push all 5 module images multi-arch (amd64+arm64; needs buildx)"
+	@echo "  build-admin    - Build both valkey-admin images (UBI9 + hardened)"
+	@echo "  test-admin     - Test both valkey-admin images"
+	@echo "  buildx-admin   - Build+push the valkey-admin UBI9 image multi-arch"
 	@echo "  run            - Start Valkey container with docker-compose"
 	@echo "  stop           - Stop Valkey container"
 	@echo "  logs           - Show container logs"
@@ -148,6 +159,49 @@ buildx-mod-search: ; $(MAKE) buildx-mod MODULE=search
 buildx-mod-ldap:   ; $(MAKE) buildx-mod MODULE=ldap
 buildx-mod-audit:  ; $(MAKE) buildx-mod MODULE=audit
 buildx-mods: buildx-mod-json buildx-mod-bloom buildx-mod-search buildx-mod-ldap buildx-mod-audit
+
+# --- Valkey Admin images (web UI) -------------------------------------------
+build-admin: build-admin-rpm build-admin-hardened
+
+build-admin-rpm:
+	@echo "Building RPM Valkey Admin image (UBI9)..."
+	docker build \
+	  --build-arg REPO_CHANNEL=$(REPO_CHANNEL) \
+	  --build-arg ADMIN_VERSION=$(VALKEY_ADMIN_VERSION) \
+	  -t $(ADMIN_IMAGE_NAME):$(TAG_ADMIN) -f Dockerfile.admin .
+
+build-admin-hardened:
+	@echo "Building hardened Valkey Admin image (DHI)..."
+	docker build \
+	  --build-arg REPO_CHANNEL=$(REPO_CHANNEL) \
+	  --build-arg ADMIN_VERSION=$(VALKEY_ADMIN_VERSION) \
+	  -t $(ADMIN_IMAGE_NAME):$(TAG_ADMIN_HARDENED) -f Dockerfile.admin.hardened .
+
+test-admin: test-admin-rpm test-admin-hardened
+
+test-admin-rpm:
+	VALKEY_ADMIN_VERSION=$(VALKEY_ADMIN_VERSION) \
+	  ./test-admin-image.sh $(ADMIN_IMAGE_NAME):$(TAG_ADMIN) rpm
+
+test-admin-hardened:
+	VALKEY_ADMIN_VERSION=$(VALKEY_ADMIN_VERSION) \
+	  ./test-admin-image.sh $(ADMIN_IMAGE_NAME):$(TAG_ADMIN_HARDENED) hardened
+
+# Multi-arch admin images (amd64+arm64). Needs docker buildx; pushes a manifest
+# list to the registry, since a multi-arch image cannot be loaded locally.
+buildx-admin:
+	docker buildx build \
+	  --platform $(PLATFORMS) \
+	  --build-arg REPO_CHANNEL=$(REPO_CHANNEL) \
+	  --build-arg ADMIN_VERSION=$(VALKEY_ADMIN_VERSION) \
+	  -t $(ADMIN_IMAGE_NAME):$(TAG_ADMIN) -f Dockerfile.admin $(MOD_OUTPUT) .
+
+buildx-admin-hardened:
+	docker buildx build \
+	  --platform $(PLATFORMS) \
+	  --build-arg REPO_CHANNEL=$(REPO_CHANNEL) \
+	  --build-arg ADMIN_VERSION=$(VALKEY_ADMIN_VERSION) \
+	  -t $(ADMIN_IMAGE_NAME):$(TAG_ADMIN_HARDENED) -f Dockerfile.admin.hardened $(MOD_OUTPUT) .
 
 run:
 	@echo "Starting Valkey..."

@@ -56,6 +56,15 @@ Available channels: `testing`, `release`, `experimental`.
 - **Makefile** - Build automation
 - **.dockerignore** - Files to exclude from build context
 
+The valkey-admin web UI images are built from this directory too, and are
+documented separately in [README.admin.md](README.admin.md) — they are a
+different product with its own version line, ports and configuration:
+
+- **Dockerfile.admin** - UBI9/RPM-based valkey-admin image
+- **Dockerfile.admin.hardened** - Multi-stage hardened valkey-admin image (DHI)
+- **admin-docker-entrypoint.sh** - valkey-admin entrypoint
+- **test-admin-image.sh** - valkey-admin image test suite
+
 ## Security Model (How it Works Without Password)
 
 The image follows the official Valkey/Redis security model:
@@ -252,6 +261,9 @@ make clean    # Remove everything
 make all      # Build and test
 make help     # Show available targets
 ```
+
+valkey-admin has its own targets (`build-admin`, `test-admin`, `buildx-admin`);
+see [README.admin.md](README.admin.md).
 
 ## Manual Docker Commands
 
