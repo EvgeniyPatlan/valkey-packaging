@@ -44,7 +44,33 @@
 %global valkey_modules_dir %{_libdir}/%{valkey_name}/modules
 
 %if %{with docs}
-%global doc_version %{version}
+# valkey-io/valkey-doc has no 9.2 tag yet (9.1.2 is its newest), so the docs
+# subpackage -- built only on SUSE -- stays on the last published release.
+# Drop the pin and go back to %%{version} once valkey-doc tags 9.2.
+%global doc_version 9.1.2
+%endif
+
+# Zstandard streaming compression, new in Valkey 9.2 (BUILD_ZSTD=yes).
+# Upstream links libzstd *statically* because it uses zstd's
+# static-linking-only custom allocator API for memory accounting, and
+# requires >= 1.4.7. EL ships no static libzstd at all -- not in
+# BaseOS/AppStream, not in CRB/PowerTools, not in EPEL -- and EL8's libzstd
+# is 1.4.4, below the floor. So on EL a pinned upstream release is built
+# statically and bundled; every other distro uses its own static package.
+# Amazon Linux 2023 leaves %%{rhel} unset and ships libzstd-static 1.5.5,
+# so it takes the system path.
+%if 0%{?rhel}
+%bcond_without bundled_zstd
+%else
+%bcond_with bundled_zstd
+%endif
+%global zstd_version 1.5.7
+%global zstd_sha256 eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
+
+%if %{with bundled_zstd}
+%global zstd_build_flag BUILD_ZSTD=yes ZSTD_PREFIX="$PWD/zstd-root"
+%else
+%global zstd_build_flag BUILD_ZSTD=yes
 %endif
 
 %global build_flags \\\
@@ -52,6 +78,7 @@
     V=1 \\\
     BUILD_WITH_SYSTEMD=yes \\\
     BUILD_TLS=yes \\\
+    %{zstd_build_flag} \\\
     %{?lua_module_build_flag} \\\
     USE_SYSTEM_JEMALLOC=yes \\\
     PREFIX=%{_prefix}
@@ -66,15 +93,16 @@
     INSTALL_LIB=%{buildroot}%{_libdir}
 
 Name:           percona-valkey
-Version:        9.1.2
+Version:        9.2.0
 Release:        1%{?dist}
 Summary:        Persistent key-value database
 
 # valkey: BSD-3-Clause
 # libvalkey: BSD-3-Clause
-# hdrhistogram, linenoise: BSD-2-Clause
+# hdrhistogram, linenoise, lz4: BSD-2-Clause
 # lua: MIT
 # fpconv: BSL-1.0
+# zstd (bundled on EL only): BSD-3-Clause OR GPL-2.0-only, used under BSD-3-Clause
 License:        BSD-3-Clause AND BSD-2-Clause AND MIT AND BSL-1.0
 URL:            https://valkey.io
 
@@ -93,6 +121,10 @@ Source11:       README.SUSE
 Source12:       README.RHEL
 %if %{with docs}
 Source50:       https://github.com/valkey-io/%{valkey_name}-doc/archive/%{doc_version}/%{valkey_name}-doc-%{doc_version}.tar.gz
+%endif
+
+%if %{with bundled_zstd}
+Source60:       https://github.com/facebook/zstd/releases/download/v%{zstd_version}/zstd-%{zstd_version}.tar.gz
 %endif
 
 Patch1001:      %{valkey_name}-conf.patch
@@ -141,6 +173,16 @@ BuildRequires:  openssl-devel >= 1.1.1
 %endif
 %endif
 
+# BUILD_ZSTD finds the system libzstd through pkg-config, and needs the
+# static archive, which lives in a separate package.
+%if %{without bundled_zstd}
+%if 0%{?is_suse}
+BuildRequires:  libzstd-devel-static >= 1.4.7
+%else
+BuildRequires:  libzstd-static >= 1.4.7
+%endif
+%endif
+
 %if %{with docs}
 BuildRequires:  pandoc
 BuildRequires:  python3-pyyaml
@@ -160,6 +202,10 @@ Provides:       bundled(lua-libs) = 5.1.5
 Provides:       bundled(linenoise) = 1.0
 Provides:       bundled(hdr_histogram) = 0.11.8
 Provides:       bundled(fpconv)
+Provides:       bundled(lz4) = 1.10.0
+%if %{with bundled_zstd}
+Provides:       bundled(zstd) = %{zstd_version}
+%endif
 
 Provides:       valkey(modules_abi)%{?_isa} = %{valkey_modules_abi}
 
@@ -256,7 +302,10 @@ Documentation and additional man pages for Valkey.
 %endif
 
 %prep
-%setup -n %{valkey_name}-%{version} %{?with_docs:-a50}
+%if %{with bundled_zstd}
+echo "%{zstd_sha256}  %{SOURCE60}" | sha256sum -c -
+%endif
+%setup -n %{valkey_name}-%{version} %{?with_docs:-a50} %{?with_bundled_zstd:-a60}
 
 %patch -P1001 -p1
 
@@ -265,6 +314,10 @@ mv deps/libvalkey/COPYING         COPYING-libvalkey-BSD-3-Clause
 mv deps/hdr_histogram/LICENSE.txt LICENSE-hdrhistogram
 mv deps/hdr_histogram/COPYING.txt COPYING-hdrhistogram
 mv deps/fpconv/LICENSE.txt        LICENSE-fpconv
+mv deps/lz4/LICENSE               LICENSE-lz4
+%if %{with bundled_zstd}
+cp zstd-%{zstd_version}/LICENSE   LICENSE-zstd
+%endif
 
 %ifarch %ix86 %arm x86_64 s390x
 sed -e 's/--with-lg-quantum/--with-lg-page=12 --with-lg-quantum/' -i deps/Makefile
@@ -281,7 +334,33 @@ if test "$api" != "%{valkey_modules_abi}"; then
 fi
 
 %build
+%if %{with bundled_zstd}
+# Static, position-independent libzstd in a private prefix that ZSTD_PREFIX
+# (in build_flags) points the Valkey build at.
+%make_build -C zstd-%{zstd_version}/lib libzstd.a CFLAGS="%{optflags} -fPIC"
+make -C zstd-%{zstd_version}/lib install-static install-includes PREFIX="$PWD/zstd-root"
+%endif
+
 %make_build %{build_flags}
+
+# A source tree that predates BUILD_ZSTD ignores the flag silently instead of
+# failing, so confirm the feature really was compiled in: src/.make-settings
+# records FINAL_CFLAGS, which carries -DHAVE_ZSTD when zstd is enabled. A
+# release must have it; a release candidate cut before zstd landed
+# (9.2.0-rc1) only warns.
+if [ -f src/.make-settings ] && grep -q -- '-DHAVE_ZSTD' src/.make-settings; then
+    :
+else
+    case "%{version}" in
+    *rc*)
+        echo "warning: BUILD_ZSTD=yes was ignored: %{version} predates zstd support" >&2
+        ;;
+    *)
+        echo "error: BUILD_ZSTD=yes was requested but zstd support was not compiled in" >&2
+        exit 1
+        ;;
+    esac
+fi
 
 %if 0%{?is_suse}
 %sysusers_generate_pre %{SOURCE8} %{valkey_name}
@@ -502,6 +581,10 @@ EOF
 %license LICENSE-hdrhistogram
 %license COPYING-hdrhistogram
 %license LICENSE-fpconv
+%license LICENSE-lz4
+%if %{with bundled_zstd}
+%license LICENSE-zstd
+%endif
 %license COPYING-libvalkey-BSD-3-Clause
 %doc 00-RELEASENOTES README.md
 %if 0%{?is_suse}
@@ -589,6 +672,12 @@ EOF
 %endif
 
 %changelog
+* Mon Oct 12 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.2.0-1
+- Bump to Valkey 9.2.0 (upstream 9.2.0 tag)
+- Build with BUILD_ZSTD=yes for Zstandard streaming compression; EL has no
+  static libzstd, so a pinned zstd %{zstd_version} is built statically and
+  bundled there, while other distros use their libzstd static package
+- Declare the vendored lz4 that Valkey 9.2 bundles and ship its licence
 * Tue Sep 01 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.1.2-1
 - Bump to Valkey 9.1.2 (upstream 9.1.2 tag)
 
