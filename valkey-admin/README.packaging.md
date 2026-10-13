@@ -133,10 +133,27 @@ in particular needs an epoch qualifier to actually enforce that floor:
   versioned alternative is what a Node-22 install on that distro can
   actually satisfy.
 
-Distro coverage — these targets satisfy the floor from their own archives:
-EL8 (after `dnf module enable nodejs:22`, the stream this packaging's own
-`el8` build image uses; `nodejs:20` is also available and satisfies the
-floor if preferred), EL9, EL10, Amazon Linux 2023, and Debian 13.
+Distro coverage — these targets can satisfy the floor from their own
+archives, but on EL8 and EL9 Node ships as a DNF module and a stream has to
+be selected on the target host first:
+
+- **EL8 and EL9**: run `dnf module enable nodejs:22` before installing (the
+  stream this packaging's own build images use; `nodejs:20` also satisfies
+  the floor). Until a stream is enabled, every modular `nodejs` is hidden by
+  modular filtering and the dependency cannot resolve. On EL9 this is easy to
+  misread, because a *non-modular* `nodejs` **1:16.20.2** is visible by
+  default: it is a real candidate, and the epoch-qualified floor correctly
+  rejects it, so the install fails with
+
+      package percona-valkey-admin-server ... requires
+      (nodejs >= 1:20 or nodejs22 >= 1:22), but none of the providers can be installed
+      ... nodejs-1:22.x ... is filtered out by modular filtering
+
+  The fix is enabling the stream, not relaxing the dependency — an
+  unqualified `nodejs >= 20` would "resolve" here by matching that Node 16,
+  and then the service would fail at runtime instead of at install time.
+- **EL10, Amazon Linux 2023, Debian 13, Ubuntu 26.04**: satisfied directly
+  from the archive, with no module step.
 
 These do NOT, and need Node >= 20 from the internal repository: Debian 12,
 Ubuntu 20.04, Ubuntu 22.04, Ubuntu 24.04.
