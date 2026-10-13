@@ -61,3 +61,11 @@ override_dh_strip:
 override_dh_shlibdeps:
 
 override_dh_auto_test:
+
+# Build the .deb with xz instead of the dpkg default: on Ubuntu 22.04 and
+# newer that default is zstd for both archive members, and the Percona repo's
+# reprepro cannot read a zstd-compressed control.tar -- repopush rejects the
+# package with "Could not find a suitable control.tar file" and the publish
+# stage fails. Every other product in this repo carries the same override.
+override_dh_builddeb:
+	dh_builddeb -- -Zxz

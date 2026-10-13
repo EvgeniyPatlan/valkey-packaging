@@ -59,6 +59,21 @@ while read -r target family image rest; do
         lintian --suppress-tags-from-file /pkg/debian/percona-valkey-admin-server.lintian-overrides \
         --fail-on error,warning "/pkg/out/$target/$base"
       echo "ok: lintian clean for $target/$base"
+      # Archive compression, not package contents, and lintian has nothing
+      # to say about it: dpkg-deb defaults to zstd for both members on
+      # Ubuntu 22.04 and newer, and the Percona repo's reprepro cannot read
+      # a zstd control.tar -- it rejects the package with "Could not find a
+      # suitable control.tar file" at publish time, long after every build
+      # and install test has passed. debian/rules forces xz for exactly
+      # that reason; assert the artifact carries it, per target, because
+      # the default differs per distro and loses silently.
+      members="$(docker run --rm -v "$PACKAGING_ROOT:/pkg:ro" valkey-admin-pkg:debian12 \
+        ar t "/pkg/out/$target/$base")"
+      for member in control.tar.xz data.tar.xz; do
+        printf '%s\n' "$members" | grep -qxF "$member" \
+          || fail "$target/$base: no $member -- members are: $(printf '%s' "$members" | tr '\n' ' ')"
+      done
+      echo "ok: xz-compressed archive members for $target/$base"
       ;;
     *)
       fail "$target: unknown family '$family' in targets.conf"
