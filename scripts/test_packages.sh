@@ -291,6 +291,21 @@ install_packages_rpm() {
 ###############################################################################
 # Repo-based install (percona-release)
 ###############################################################################
+# Optional packages (modules and bundle) are installed when the repo has them;
+# one that is not published yet is skipped, and its test then skips itself.
+OPTIONAL_REPO_PKGS=(percona-valkey-json percona-valkey-bloom percona-valkey-bundle)
+
+install_optional_from_repo() {
+    local pkg
+    for pkg in "${OPTIONAL_REPO_PKGS[@]}"; do
+        if [[ "$OS_FAMILY" == "deb" ]]; then
+            apt-get install -y "$pkg" 2>&1
+        else
+            yum install -y "$pkg" 2>&1
+        fi || echo "Optional package $pkg not available in the repo — skipping."
+    done
+}
+
 install_percona_release_deb() {
     echo "Installing percona-release (deb)..."
     local tmp_deb
@@ -316,6 +331,7 @@ install_from_repo_deb() {
     apt-get install -y percona-valkey-server percona-valkey-sentinel \
         percona-valkey-tools percona-valkey-compat-redis percona-valkey-compat-redis-dev \
         percona-valkey-dev
+    install_optional_from_repo
     # Capture installed package names and versions
     while IFS= read -r line; do
         INSTALLED_PKGS+=("$line")
@@ -329,6 +345,7 @@ install_from_repo_rpm() {
     percona-release enable valkey-80 "$REPO_CHANNEL"
     yum install -y percona-valkey percona-valkey-compat-redis \
         percona-valkey-compat-redis-devel percona-valkey-devel
+    install_optional_from_repo
     # Capture installed package names and versions
     while IFS= read -r line; do
         [[ -n "$line" ]] && INSTALLED_PKGS+=("$line")
