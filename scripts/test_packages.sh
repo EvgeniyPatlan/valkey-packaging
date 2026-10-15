@@ -1449,8 +1449,8 @@ test_bundle_meta() {
     # Installing the meta-package must have pulled in every module's .so.
     assert_file_exists "${module_dir}/libjson.so"         "json module pulled in by bundle"
     assert_file_exists "${module_dir}/libvalkey_bloom.so" "bloom module pulled in by bundle"
-    # The 8.0 bundle is server + json + bloom: valkey-search needs 8.1.1+ and
-    # there is no 8.0 ldap build.
+    assert_file_exists "${module_dir}/libvalkey_ldap.so"  "ldap module pulled in by bundle"
+    # The 8.0 bundle has no valkey-search: it needs Valkey 8.1.1 or later.
 }
 
 ###############################################################################

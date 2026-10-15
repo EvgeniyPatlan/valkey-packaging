@@ -1,7 +1,7 @@
 percona-valkey-bundle (8.0.11-1) unstable; urgency=medium
 
-  * Bundle for Percona Valkey 8.0.11: server, json and bloom only; no
-    valkey-search or valkey-ldap build for 8.0.
+  * Bundle for Percona Valkey 8.0.11: server, json, bloom and ldap; no
+    valkey-search for 8.0 (it needs Valkey 8.1.1 or later).
 
  -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Thu, 15 Oct 2026 12:00:00 +0000
 

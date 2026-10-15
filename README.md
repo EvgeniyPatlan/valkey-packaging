@@ -8,7 +8,7 @@ OS packaging (DEB/RPM) for [Percona Valkey](https://valkey.io) — a Percona-bra
 >   Lua shared module.
 > - valkey-bloom is built with the `valkey_8_0` cargo feature.
 > - valkey-search is not built: every release needs Valkey 8.1.1 or later.
-> - The bundle is server + json + bloom.
+> - The bundle is server + json + bloom + ldap.
 > - valkey-admin, the Docker images and the AMI are not built from this branch.
 > - Packages go to the `valkey-80` percona-release component.
 
@@ -207,7 +207,8 @@ shows `name=search`; try `FT.CREATE` / `FT._LIST` / `FT.SEARCH`).
 ### percona-valkey-bundle (meta-package — server + all modules)
 
 `percona-valkey-bundle` is a **dependency-only meta-package** that installs the
-Percona Valkey server together with every module (`json` and `bloom` on 8.0)
+Percona Valkey server together with every module (`json`, `bloom` and `ldap`
+on 8.0)
 in one step. It ships no files of its own — installing it pulls in the
 whole stack. It has no upstream source to compile, so there are no `*_deps` /
 `get_*_sources` clone steps; the build just assembles a tiny source tarball
@@ -229,7 +230,8 @@ scripts/valkey_builder.sh \
 
 The resulting `percona-valkey-bundle` package depends on `percona-valkey`
 (`percona-valkey-server` on DEB) plus `percona-valkey-json`,
-and `percona-valkey-bloom` (8.0: server 8.0.11, json 1.0.2, bloom 1.0.1). The
+`percona-valkey-bloom` and `percona-valkey-ldap` (8.0: server 8.0.11, json
+1.0.2, bloom 1.0.1, ldap 1.1.1). The
 modules are still **not loaded automatically** — enable the ones you want with
 `loadmodule` / `MODULE LOAD`.
 
