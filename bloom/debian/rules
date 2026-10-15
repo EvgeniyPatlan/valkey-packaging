@@ -15,7 +15,7 @@ override_dh_auto_configure:
 
 override_dh_auto_build:
 	# Fully offline: cargo deps are vendored into ./vendor with .cargo/config.toml.
-	cargo build --release --offline
+	cargo build --release --offline --features valkey_8_0
 
 override_dh_auto_install:
 	install -d debian/percona-valkey-bloom/usr/lib/valkey/modules

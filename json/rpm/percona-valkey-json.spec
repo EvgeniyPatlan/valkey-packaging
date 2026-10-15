@@ -74,6 +74,9 @@ sh gen-module-sbom.sh %{name} %{version} %{buildroot}%{_datadir}/%{name}/sbom .
 %{_datadir}/%{name}/
 
 %changelog
+* Thu Oct 15 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 1.0.2-3
+- Build for Percona Valkey 8.0.11
+
 * Tue Sep 01 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 1.0.2-2
 - Rebuild against Percona Valkey 9.1.2
 

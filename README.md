@@ -2,6 +2,16 @@
 
 OS packaging (DEB/RPM) for [Percona Valkey](https://valkey.io) — a Percona-branded distribution of the Valkey key-value store.
 
+> **This is the Valkey 8.0 branch (8.0.11).** It is ported from the 9.2 line.
+> What differs from 9.x:
+> - The server bundles hiredis rather than libvalkey, and has no zstd, lz4 or
+>   Lua shared module.
+> - valkey-bloom is built with the `valkey_8_0` cargo feature.
+> - valkey-search is not built: every release needs Valkey 8.1.1 or later.
+> - The bundle is server + json + bloom.
+> - valkey-admin, the Docker images and the AMI are not built from this branch.
+> - Packages go to the `valkey-80` percona-release component.
+
 ## Repository structure
 
 ```
@@ -51,8 +61,8 @@ scripts/valkey_builder.sh \
   --build_src_rpm \
   --build_rpm \
   --install_deps \
-  --version=9.1.2 \
-  --branch=9.1.2
+  --version=8.0.11 \
+  --branch=8.0.11
 ```
 
 Output RPMs are placed in `/tmp/BUILD/rpm/` and in the current directory under `rpm/`.
@@ -71,8 +81,8 @@ scripts/valkey_builder.sh \
   --build_src_deb \
   --build_deb \
   --install_deps \
-  --version=9.1.2 \
-  --branch=9.1.2
+  --version=8.0.11 \
+  --branch=8.0.11
 ```
 
 Output .deb files are placed in `/tmp/BUILD/deb/` and in the current directory under `deb/`.
@@ -197,8 +207,8 @@ shows `name=search`; try `FT.CREATE` / `FT._LIST` / `FT.SEARCH`).
 ### percona-valkey-bundle (meta-package — server + all modules)
 
 `percona-valkey-bundle` is a **dependency-only meta-package** that installs the
-Percona Valkey server together with every module (`json`, `bloom`, `search`,
-`ldap`) in one step. It ships no files of its own — installing it pulls in the
+Percona Valkey server together with every module (`json` and `bloom` on 8.0)
+in one step. It ships no files of its own — installing it pulls in the
 whole stack. It has no upstream source to compile, so there are no `*_deps` /
 `get_*_sources` clone steps; the build just assembles a tiny source tarball
 (README + LICENSE) and packages the metadata.
@@ -219,9 +229,7 @@ scripts/valkey_builder.sh \
 
 The resulting `percona-valkey-bundle` package depends on `percona-valkey`
 (`percona-valkey-server` on DEB) plus `percona-valkey-json`,
-`percona-valkey-bloom`, `percona-valkey-search`, and `percona-valkey-ldap`.
-Versions track the curated set from `valkey-io/valkey-bundle` `versions.json`
-(9.1: server 9.1.2, json 1.0.2, bloom 1.0.1, search 1.2.0, ldap 1.1.1). The
+and `percona-valkey-bloom` (8.0: server 8.0.11, json 1.0.2, bloom 1.0.1). The
 modules are still **not loaded automatically** — enable the ones you want with
 `loadmodule` / `MODULE LOAD`.
 
@@ -249,9 +257,9 @@ docker build -f docker/Dockerfile.bundle -t percona-valkey-bundle:9.1.2 docker/
 | `--build_src_deb` | Build source DEB package |
 | `--build_deb` | Build binary DEB packages (requires source DEB) |
 | `--install_deps` | Install build dependencies (requires root) |
-| `--version=VER` | Version string (default: `9.1.2`) |
+| `--version=VER` | Version string (default: `8.0.11`) |
 | `--release=REL` | Release number (default: `1`) |
-| `--branch=BRANCH` | Git branch/tag to check out (default: `9.1.2`) |
+| `--branch=BRANCH` | Git branch/tag to check out (default: `8.0.11`) |
 | `--repo=URL` | Source repository URL (default: `https://github.com/valkey-io/valkey.git`) |
 | `--use_local_packaging_script` | Use `debian/` and `rpm/` from this repo instead of cloning |
 | `--get_json_sources` | Clone valkey-json, vendor RapidJSON, build an offline source tarball |
@@ -285,7 +293,7 @@ docker build -f docker/Dockerfile.bundle -t percona-valkey-bundle:9.1.2 docker/
 | `--build_bundle_rpm` | Build the percona-valkey-bundle binary RPM (per-arch meta) |
 | `--build_bundle_src_deb` | Build the percona-valkey-bundle source DEB |
 | `--build_bundle_deb` | Build the percona-valkey-bundle binary DEB (per-arch meta) |
-| `--bundle_version=VER` | valkey-bundle version (default: `9.1.2`) |
+| `--bundle_version=VER` | valkey-bundle version (default: `8.0.11`) |
 
 ## Testing packages
 

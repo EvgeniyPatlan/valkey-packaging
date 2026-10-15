@@ -311,7 +311,7 @@ install_from_repo_deb() {
     apt-get update -qq
     apt-get install -y -qq wget gnupg2 lsb-release curl
     install_percona_release_deb
-    percona-release enable valkey-91 "$REPO_CHANNEL"
+    percona-release enable valkey-80 "$REPO_CHANNEL"
     apt-get update -qq
     apt-get install -y percona-valkey-server percona-valkey-sentinel \
         percona-valkey-tools percona-valkey-compat-redis percona-valkey-compat-redis-dev \
@@ -326,7 +326,7 @@ install_from_repo_deb() {
 install_from_repo_rpm() {
     section_header "Installing from Percona repo (rpm, channel=$REPO_CHANNEL)"
     install_percona_release_rpm
-    percona-release enable valkey-91 "$REPO_CHANNEL"
+    percona-release enable valkey-80 "$REPO_CHANNEL"
     yum install -y percona-valkey percona-valkey-compat-redis \
         percona-valkey-compat-redis-devel percona-valkey-devel
     # Capture installed package names and versions
@@ -1432,8 +1432,8 @@ test_bundle_meta() {
     # Installing the meta-package must have pulled in every module's .so.
     assert_file_exists "${module_dir}/libjson.so"         "json module pulled in by bundle"
     assert_file_exists "${module_dir}/libvalkey_bloom.so" "bloom module pulled in by bundle"
-    assert_file_exists "${module_dir}/libsearch.so"       "search module pulled in by bundle"
-    assert_file_exists "${module_dir}/libvalkey_ldap.so"  "ldap module pulled in by bundle"
+    # The 8.0 bundle is server + json + bloom: valkey-search needs 8.1.1+ and
+    # there is no 8.0 ldap build.
 }
 
 ###############################################################################

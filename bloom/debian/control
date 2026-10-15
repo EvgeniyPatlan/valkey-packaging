@@ -18,7 +18,7 @@ Architecture: amd64 arm64
 Depends:
  ${shlibs:Depends},
  ${misc:Depends},
- percona-valkey-server (>= 9.0.0),
+ percona-valkey-server (>= 8.0.0),
 Description: Bloom filter module for Percona Valkey
  valkey-bloom provides a Bloom filter data type for Percona Valkey via the
  libvalkey_bloom.so loadable module (BF.ADD, BF.EXISTS, BF.RESERVE, BF.INSERT,

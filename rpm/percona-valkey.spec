@@ -26,16 +26,6 @@
 
 %bcond_with tests
 
-# Build the Lua scripting engine as a dlopen'd shared module
-# (libvalkeylua.so), new in Valkey 9.1. OFF by default: the upstream
-# default statically links Lua into valkey-server. Enable with:
-#   rpmbuild --with lua_module
-%bcond_with lua_module
-
-%if %{with lua_module}
-%global lua_module_build_flag BUILD_LUA=module
-%endif
-
 %define _data_dir       %{_localstatedir}/lib/%{valkey_name}
 %define _log_dir        %{_localstatedir}/log/%{valkey_name}
 %define _conf_dir       %{_sysconfdir}/%{valkey_name}
@@ -43,66 +33,30 @@
 %global valkey_modules_abi 1
 %global valkey_modules_dir %{_libdir}/%{valkey_name}/modules
 
-%if %{with docs}
-# valkey-io/valkey-doc has no 9.2 tag yet (9.1.2 is its newest), so the docs
-# subpackage -- built only on SUSE -- stays on the last published release.
-# Drop the pin and go back to %%{version} once valkey-doc tags 9.2.
-%global doc_version 9.1.2
-%endif
-
-# Zstandard streaming compression, new in Valkey 9.2 (BUILD_ZSTD=yes).
-# Upstream links libzstd *statically* because it uses zstd's
-# static-linking-only custom allocator API for memory accounting, and
-# requires >= 1.4.7. EL ships no static libzstd at all -- not in
-# BaseOS/AppStream, not in CRB/PowerTools, not in EPEL -- and EL8's libzstd
-# is 1.4.4, below the floor. So on EL a pinned upstream release is built
-# statically and bundled; every other distro uses its own static package.
-# Amazon Linux 2023 leaves %%{rhel} unset and ships libzstd-static 1.5.5,
-# so it takes the system path.
-%if 0%{?rhel}
-%bcond_without bundled_zstd
-%else
-%bcond_with bundled_zstd
-%endif
-%global zstd_version 1.5.7
-%global zstd_sha256 eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
-
-%if %{with bundled_zstd}
-%global zstd_build_flag BUILD_ZSTD=yes ZSTD_PREFIX="$PWD/zstd-root"
-%else
-%global zstd_build_flag BUILD_ZSTD=yes
-%endif
+%global doc_version %{version}
 
 %global build_flags \\\
     DEBUG="" \\\
     V=1 \\\
     BUILD_WITH_SYSTEMD=yes \\\
     BUILD_TLS=yes \\\
-    %{zstd_build_flag} \\\
-    %{?lua_module_build_flag} \\\
     USE_SYSTEM_JEMALLOC=yes \\\
     PREFIX=%{_prefix}
 
-# INSTALL_LIB targets the arch libdir (e.g. /usr/lib64 on x86_64) so that
-# libvalkeylua.so lands in the proper location. The build-time RPATH baked
-# into the binaries via upstream's FINAL_LDFLAGS gets stripped at the end
-# of the install section with chrpath -d.
 %global install_flags \\\
     %{build_flags} \\\
-    INSTALL_BIN=%{buildroot}%{_bindir} \\\
-    INSTALL_LIB=%{buildroot}%{_libdir}
+    INSTALL_BIN=%{buildroot}%{_bindir}
 
 Name:           percona-valkey
-Version:        9.2.0
+Version:        8.0.11
 Release:        1%{?dist}
 Summary:        Persistent key-value database
 
 # valkey: BSD-3-Clause
-# libvalkey: BSD-3-Clause
-# hdrhistogram, linenoise, lz4: BSD-2-Clause
+# hiredis: BSD-3-Clause
+# hdrhistogram, linenoise: BSD-2-Clause
 # lua: MIT
 # fpconv: BSL-1.0
-# zstd (bundled on EL only): BSD-3-Clause OR GPL-2.0-only, used under BSD-3-Clause
 License:        BSD-3-Clause AND BSD-2-Clause AND MIT AND BSL-1.0
 URL:            https://valkey.io
 
@@ -123,10 +77,6 @@ Source12:       README.RHEL
 Source50:       https://github.com/valkey-io/%{valkey_name}-doc/archive/%{doc_version}/%{valkey_name}-doc-%{doc_version}.tar.gz
 %endif
 
-%if %{with bundled_zstd}
-Source60:       https://github.com/facebook/zstd/releases/download/v%{zstd_version}/zstd-%{zstd_version}.tar.gz
-%endif
-
 Patch1001:      %{valkey_name}-conf.patch
 
 BuildRequires:  make
@@ -139,15 +89,6 @@ BuildRequires:  procps-ng
 %endif
 BuildRequires:  tcl
 BuildRequires:  openssl
-# Used to strip the build-time RPATH that upstream 9.1+ bakes into binaries
-# via -Wl,-rpath,$(PREFIX)/lib:$(current_dir)/modules/lua. Without this the
-# binaries leak both PREFIX and the source build directory into the ELF
-# .dynamic section, tripping check-buildroot and lintian rpath warnings.
-# Only needed when the Lua shared module is built (--with lua_module):
-# upstream injects the rpath only in BUILD_LUA=module mode.
-%if %{with lua_module}
-BuildRequires:  chrpath
-%endif
 
 %if 0%{?is_suse}
 BuildRequires:  jemalloc-devel
@@ -173,16 +114,6 @@ BuildRequires:  openssl-devel >= 1.1.1
 %endif
 %endif
 
-# BUILD_ZSTD finds the system libzstd through pkg-config, and needs the
-# static archive, which lives in a separate package.
-%if %{without bundled_zstd}
-%if 0%{?is_suse}
-BuildRequires:  libzstd-devel-static >= 1.4.7
-%else
-BuildRequires:  libzstd-static >= 1.4.7
-%endif
-%endif
-
 %if %{with docs}
 BuildRequires:  pandoc
 BuildRequires:  python3-pyyaml
@@ -197,15 +128,11 @@ Requires(pre):  shadow-utils
 %endif
 
 # Bundled dependencies
-Provides:       bundled(libvalkey) = 1.0.0
+Provides:       bundled(hiredis) = 1.2.0
 Provides:       bundled(lua-libs) = 5.1.5
 Provides:       bundled(linenoise) = 1.0
 Provides:       bundled(hdr_histogram) = 0.11.8
 Provides:       bundled(fpconv)
-Provides:       bundled(lz4) = 1.10.0
-%if %{with bundled_zstd}
-Provides:       bundled(zstd) = %{zstd_version}
-%endif
 
 Provides:       valkey(modules_abi)%{?_isa} = %{valkey_modules_abi}
 
@@ -302,22 +229,15 @@ Documentation and additional man pages for Valkey.
 %endif
 
 %prep
-%if %{with bundled_zstd}
-echo "%{zstd_sha256}  %{SOURCE60}" | sha256sum -c -
-%endif
-%setup -n %{valkey_name}-%{version} %{?with_docs:-a50} %{?with_bundled_zstd:-a60}
+%setup -n %{valkey_name}-%{version} %{?with_docs:-a50}
 
 %patch -P1001 -p1
 
 mv deps/lua/COPYRIGHT             COPYRIGHT-lua
-mv deps/libvalkey/COPYING         COPYING-libvalkey-BSD-3-Clause
+mv deps/hiredis/COPYING           COPYING-hiredis-BSD-3-Clause
 mv deps/hdr_histogram/LICENSE.txt LICENSE-hdrhistogram
 mv deps/hdr_histogram/COPYING.txt COPYING-hdrhistogram
 mv deps/fpconv/LICENSE.txt        LICENSE-fpconv
-mv deps/lz4/LICENSE               LICENSE-lz4
-%if %{with bundled_zstd}
-cp zstd-%{zstd_version}/LICENSE   LICENSE-zstd
-%endif
 
 %ifarch %ix86 %arm x86_64 s390x
 sed -e 's/--with-lg-quantum/--with-lg-page=12 --with-lg-quantum/' -i deps/Makefile
@@ -334,33 +254,7 @@ if test "$api" != "%{valkey_modules_abi}"; then
 fi
 
 %build
-%if %{with bundled_zstd}
-# Static, position-independent libzstd in a private prefix that ZSTD_PREFIX
-# (in build_flags) points the Valkey build at.
-%make_build -C zstd-%{zstd_version}/lib libzstd.a CFLAGS="%{optflags} -fPIC"
-make -C zstd-%{zstd_version}/lib install-static install-includes PREFIX="$PWD/zstd-root"
-%endif
-
 %make_build %{build_flags}
-
-# A source tree that predates BUILD_ZSTD ignores the flag silently instead of
-# failing, so confirm the feature really was compiled in: src/.make-settings
-# records FINAL_CFLAGS, which carries -DHAVE_ZSTD when zstd is enabled. A
-# release must have it; a release candidate cut before zstd landed
-# (9.2.0-rc1) only warns.
-if [ -f src/.make-settings ] && grep -q -- '-DHAVE_ZSTD' src/.make-settings; then
-    :
-else
-    case "%{version}" in
-    *rc*)
-        echo "warning: BUILD_ZSTD=yes was ignored: %{version} predates zstd support" >&2
-        ;;
-    *)
-        echo "error: BUILD_ZSTD=yes was requested but zstd support was not compiled in" >&2
-        exit 1
-        ;;
-    esac
-fi
 
 %if 0%{?is_suse}
 %sysusers_generate_pre %{SOURCE8} %{valkey_name}
@@ -375,28 +269,6 @@ popd
 
 %install
 make install %{install_flags}
-
-%if %{with lua_module}
-# Upstream's install-lua-module hardcodes PREFIX/lib for the new shared
-# Lua module and does not reliably honor the INSTALL_LIB command-line
-# override across the top-level -> src/Makefile recursion, so on multilib
-# distros (x86_64 RHEL where libdir is lib64) the .so lands in lib
-# instead of lib64. Relocate it to the correct arch libdir manually and
-# clean up the wrong-libdir copy if present.
-install -Dm0644 src/modules/lua/libvalkeylua.so %{buildroot}%{_libdir}/libvalkeylua.so
-rm -f %{buildroot}%{_prefix}/lib/libvalkeylua.so
-
-# Strip the leaked build-time RPATH from binaries and the lua module.
-# Upstream 9.1's src/Makefile bakes -Wl,-rpath,PREFIX/lib:BUILDDIR/modules/lua
-# into every binary built when BUILD_LUA is not "no". The first entry is
-# unnecessary (libvalkeylua.so lives in the arch libdir which is in glibc's
-# default search path) and the second entry leaks the absolute build
-# directory, which trips both check-buildroot and lintian rpath warnings.
-chrpath -d %{buildroot}%{_bindir}/%{valkey_name}-server
-chrpath -d %{buildroot}%{_bindir}/%{valkey_name}-cli
-chrpath -d %{buildroot}%{_bindir}/%{valkey_name}-benchmark
-chrpath -d %{buildroot}%{_libdir}/libvalkeylua.so 2>/dev/null || :
-%endif
 
 %if %{with docs}
 pushd %{valkey_name}-doc-%{doc_version}
@@ -581,11 +453,7 @@ EOF
 %license LICENSE-hdrhistogram
 %license COPYING-hdrhistogram
 %license LICENSE-fpconv
-%license LICENSE-lz4
-%if %{with bundled_zstd}
-%license LICENSE-zstd
-%endif
-%license COPYING-libvalkey-BSD-3-Clause
+%license COPYING-hiredis-BSD-3-Clause
 %doc 00-RELEASENOTES README.md
 %if 0%{?is_suse}
 %doc README.SUSE
@@ -609,9 +477,6 @@ EOF
 %endif
 
 %{_bindir}/%{valkey_name}-*
-%if %{with lua_module}
-%{_libdir}/libvalkeylua.so
-%endif
 %{_tmpfilesdir}/%{valkey_name}.conf
 %if 0%{?is_suse}
 %{_sysusersdir}/%{valkey_name}-user.conf
@@ -672,38 +537,8 @@ EOF
 %endif
 
 %changelog
-* Mon Oct 12 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.2.0-1
-- Bump to Valkey 9.2.0 (upstream 9.2.0 tag)
-- Build with BUILD_ZSTD=yes for Zstandard streaming compression; EL has no
-  static libzstd, so a pinned zstd %{zstd_version} is built statically and
-  bundled there, while other distros use their libzstd static package
-- Declare the vendored lz4 that Valkey 9.2 bundles and ship its licence
-* Tue Sep 01 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.1.2-1
-- Bump to Valkey 9.1.2 (upstream 9.1.2 tag)
-
-* Thu Jul 23 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.1.1-1
-- Bump to Valkey 9.1.1
-
-* Tue Apr 14 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.1.0-1
-- Bump to Valkey 9.1.0
-- Built from upstream 9.1 branch (9.1.0 tag not yet released)
-
-* Tue Feb 17 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.0.2-1.1
-- Rename package from valkey to percona-valkey for Percona branding
-- Add Provides/Obsoletes for smooth upgrades from valkey packages
-
-* Tue Feb 17 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.0.1-1.1
-- Fix: apply conf patch on all distros, not just SUSE
-- Fix: install default instance configs (default.conf, sentinel-default.conf)
-- Fix: use system jemalloc instead of bundled
-- Fix: split build/install flags to avoid baking buildroot into binaries
-- Fix: sentinel service WantedBy references correct target
-- Fix: migration script robustness (guard missing dirs, quote variables)
-- Fix: add Requires(pre) shadow-utils on RHEL
-- Fix: logrotate catches logs in subdirectories
-- Fix: renumber Source files (close Source5 gap)
-- Add systemd service hardening directives
-- Sync doc_version with package version
-
-* Tue Jan 27 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.0.1-1
-- Initial build
+* Thu Oct 15 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 8.0.11-1
+- Valkey 8.0.11, packaging ported from the Percona 9.2 line
+- Bundled hiredis instead of libvalkey; no lz4, zstd or Lua shared module,
+  which are not part of 8.0
+- Docs built from the matching valkey-doc 8.0.11 tag

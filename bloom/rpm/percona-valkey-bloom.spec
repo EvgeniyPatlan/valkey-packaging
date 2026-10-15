@@ -43,7 +43,7 @@ export CARGO_HOME=/usr/local/cargo
 export PATH="/usr/local/cargo/bin:/usr/local/bin:${PATH}"
 # Fully offline: cargo dependencies are vendored into ./vendor with a
 # .cargo/config.toml redirect, so no crates.io access is needed.
-cargo build --release --offline
+cargo build --release --offline --features valkey_8_0
 
 %install
 # The modules directory itself is owned by percona-valkey; this package only
@@ -64,6 +64,10 @@ sh gen-module-sbom.sh %{name} %{version} %{buildroot}%{_datadir}/%{name}/sbom .
 %{_datadir}/%{name}/
 
 %changelog
+* Thu Oct 15 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 1.0.1-3
+- Build for Percona Valkey 8.0.11 with the valkey_8_0 cargo feature,
+  which upstream requires for loading on Valkey 8.0
+
 * Tue Sep 01 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 1.0.1-2
 - Rebuild against Percona Valkey 9.1.2
 

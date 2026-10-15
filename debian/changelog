@@ -1,3 +1,14 @@
+percona-valkey (8.0.11-1) unstable; urgency=medium
+
+  * Valkey 8.0.11, packaging ported from the Percona 9.2 line.
+  * Drop BUILD_ZSTD, the vendored lz4 and the optional Lua shared module,
+    none of which exist in 8.0.
+  * Take the 0002, 0004 and Debian-defaults patches from the upstream
+    valkey-release-automation 8.0 patch set; 0001 and 0003 apply unchanged.
+  * Build the docs from the valkey-doc 8.0.11 tag.
+
+ -- Evgeniy Patlan <evgeniy.patlan@percona.com>  Thu, 15 Oct 2026 12:00:00 +0000
+
 percona-valkey (9.2.0-1) unstable; urgency=medium
 
   * Bump to Valkey 9.2.0 (built from the upstream 9.2.0 tag).

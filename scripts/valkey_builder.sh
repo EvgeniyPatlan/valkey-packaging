@@ -10,9 +10,9 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 readonly PRODUCT="valkey"
 readonly PACKAGE_NAME="percona-valkey"
-readonly DEFAULT_VERSION="9.2.0"
+readonly DEFAULT_VERSION="8.0.11"
 readonly DEFAULT_RELEASE="1"
-readonly DEFAULT_BRANCH="9.2.0"
+readonly DEFAULT_BRANCH="8.0.11"
 readonly DEFAULT_REPO="https://github.com/valkey-io/valkey.git"
 
 # valkey-json module packaging (separate upstream source + version)
@@ -39,7 +39,7 @@ readonly DEFAULT_SEARCH_VERSION="1.2.0"
 # payload of its own. No upstream source to compile — the "source" is a small
 # tarball (README + LICENSE) assembled from this repo's bundle/ dir.
 readonly BUNDLE_PACKAGE_NAME="percona-valkey-bundle"
-readonly DEFAULT_BUNDLE_VERSION="9.2.0"
+readonly DEFAULT_BUNDLE_VERSION="8.0.11"
 
 # valkey-admin packaging (Node.js administration server; separate upstream
 # source + version). Unlike the module packages above this is not a Valkey
@@ -852,7 +852,6 @@ install_deps_rpm() {
         zypper install -y \
             rpm-build rpmdevtools gcc make wget tar gzip git \
             jemalloc-devel libopenssl-devel pkg-config \
-            libzstd-devel-static \
             python3 tcl procps chrpath \
             systemd-devel systemd libsystemd0 \
             sysuser-shadow sysuser-tools
@@ -895,16 +894,6 @@ install_deps_rpm() {
             python3 tcl procps-ng chrpath \
             systemd-devel systemd-rpm-macros
 
-        # Static libzstd for BUILD_ZSTD (Valkey 9.2+). EL8/9/10 ship none —
-        # not in BaseOS/AppStream, CRB/PowerTools or EPEL — so the spec builds
-        # and bundles a pinned zstd there instead (its Source60).
-        case "$PLATFORM_FAMILY" in
-            fedora|amazon)
-                $pkg_mgr install -y libzstd-static \
-                    || die "libzstd-static is required for BUILD_ZSTD on $PLATFORM_FAMILY"
-                ;;
-        esac
-
         # Documentation deps (optional)
         $pkg_mgr install -y pandoc python3-pyyaml 2>/dev/null \
             || log_warn "pandoc not available — docs will be skipped"
@@ -927,7 +916,6 @@ install_deps_deb() {
     # Valkey build dependencies — try all at once, fall back to individual
     apt_get -y install \
         libjemalloc-dev libssl-dev libsystemd-dev \
-        libzstd-dev \
         libhiredis-dev liblua5.1-dev liblzf-dev \
         lua-bitop-dev lua-cjson-dev \
         pkg-config pkgconf procps \
@@ -938,7 +926,6 @@ install_deps_deb() {
         log_warn "Some packages not available, trying individually..."
         local -a fallback_pkgs=(
             libjemalloc-dev libssl-dev libsystemd-dev
-            libzstd-dev
             libhiredis-dev liblua5.1-dev liblzf-dev
             lua-bitop-dev lua-cjson-dev
             pkg-config pkgconf procps
@@ -980,8 +967,8 @@ install_deps_json() {
 
     local channel="${VALKEY_REPO_CHANNEL:-testing}"
     # Percona repo that ships the existing valkey packages (percona-valkey-devel).
-    # For 9.1 the percona-release component is "valkey-91" (override if needed).
-    local repo_name="${VALKEY_REPO_NAME:-valkey-91}"
+    # For 8.0 the percona-release component is "valkey-80" (override if needed).
+    local repo_name="${VALKEY_REPO_NAME:-valkey-80}"
 
     if [[ "$OS" == "rpm" ]]; then
         local pkg_mgr="yum"
@@ -1149,27 +1136,6 @@ build_srpm() {
     sed -i 's:.rhel7:%{dist}:' "${WORKDIR}/rpmbuild/SPECS/${PACKAGE_NAME}.spec"
     sed -i "s/^Version:.*$/Version:        ${VERSION}/" "${WORKDIR}/rpmbuild/SPECS/${PACKAGE_NAME}.spec"
     sed -i "s/^Release:.*$/Release:        ${RELEASE}%{?dist}/" "${WORKDIR}/rpmbuild/SPECS/${PACKAGE_NAME}.spec"
-
-    # Valkey 9.2+ on EL bundles a pinned zstd, because EL ships no static
-    # libzstd. The spec only declares that Source on the distros that need it,
-    # so ask the spec rather than guessing, and fetch it before "rpmbuild -bs"
-    # -- which refuses to build an SRPM with a missing Source. The binary build
-    # rebuilds this SRPM, so the tarball travels inside it.
-    local zstd_url
-    local spec_expanded
-    spec_expanded="$(rpmspec -P "rpmbuild/SPECS/${PACKAGE_NAME}.spec" 2>/dev/null || true)"
-    # Collect in END rather than exiting early: an awk that exits first closes
-    # the pipe, rpmspec dies of SIGPIPE, and pipefail turns that into 141.
-    zstd_url="$(printf '%s\n' "$spec_expanded" \
-        | awk '/^Source60:/{u=$2} END{if (u != "") print u}')"
-    if [[ -n "$zstd_url" ]]; then
-        local zstd_tar="${zstd_url##*/}"
-        if [[ ! -f "rpmbuild/SOURCES/${zstd_tar}" ]]; then
-            log_info "Fetching bundled zstd: ${zstd_url}"
-            wget -q -O "rpmbuild/SOURCES/${zstd_tar}" "$zstd_url" \
-                || die "Failed to download bundled zstd from ${zstd_url}"
-        fi
-    fi
 
     rpmbuild -bs --define "_topdir ${WORKDIR}/rpmbuild" --define "dist .generic" \
         --define "version ${VERSION}" rpmbuild/SPECS/${PACKAGE_NAME}.spec

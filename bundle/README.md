@@ -12,21 +12,20 @@ Installing `percona-valkey-bundle` pulls in:
 | `percona-valkey` / `percona-valkey-server` | — | the Valkey server |
 | `percona-valkey-json` | `JSON.*` | native JSON data type (`libjson.so`) |
 | `percona-valkey-bloom` | `BF.*` | Bloom filters (`libvalkey_bloom.so`) |
-| `percona-valkey-search` | `FT.*` | vector / full-text search (`libsearch.so`) |
-| `percona-valkey-ldap` | — | LDAP authentication (`libvalkey_ldap.so`) |
 
-Curated versions for 9.1 (from `valkey-io/valkey-bundle` `versions.json`):
-server 9.1.2, json 1.0.2, bloom 1.0.1, search 1.2.0, ldap 1.1.1.
+Versions for 8.0: server 8.0.11, json 1.0.2, bloom 1.0.1 (built with the
+`valkey_8_0` feature). valkey-search is not part of the 8.0 bundle: every
+release requires Valkey 8.1.1 or later.
 
 ## Install
 
 ```bash
 # RPM (RHEL/Oracle/Amazon)
-percona-release enable valkey-91 release   # or 'testing'
+percona-release enable valkey-80 release   # or 'testing'
 dnf install percona-valkey-bundle
 
 # DEB (Debian/Ubuntu)
-percona-release enable valkey-91 release
+percona-release enable valkey-80 release
 apt-get update && apt-get install percona-valkey-bundle
 ```
 
@@ -41,8 +40,6 @@ The modules are installed into the Valkey module directory
 ```
 loadmodule /usr/lib64/valkey/modules/libjson.so
 loadmodule /usr/lib64/valkey/modules/libvalkey_bloom.so
-loadmodule /usr/lib64/valkey/modules/libsearch.so
-loadmodule /usr/lib64/valkey/modules/libvalkey_ldap.so
 ```
 
 or at runtime with `MODULE LOAD` (requires `enable-module-command yes`).

@@ -17,7 +17,7 @@ Architecture: amd64 arm64
 Depends:
  ${shlibs:Depends},
  ${misc:Depends},
- percona-valkey-server (>= 9.0.0),
+ percona-valkey-server (>= 8.0.0),
 Description: Native JSON data type module for Percona Valkey
  valkey-json provides native JSON support for Percona Valkey via the
  libjson.so loadable module, implementing the JSON.* command family with

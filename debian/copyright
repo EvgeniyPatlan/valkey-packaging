@@ -20,9 +20,9 @@ Files: tests/support/response_transformers.tcl
        src/connhelpers.h
        src/logreqres.c
        src/call_reply.*
-       src/lua/script_lua.*
+       src/script_lua.*
        src/socket.c
-       src/lua/function_lua.c
+       src/function_lua.c
        src/functions.*
        src/resp_parser.*
        src/cli_common.c
@@ -231,10 +231,6 @@ Copyright: 2013-2019 night-shift <as.smljk@gmail.com>
            2009 Florian Loitsch <florian.loitsch@inria.fr>
            2021 Redis Labs
 License: BSL-1.0
-
-Files: deps/lz4/*
-Copyright: 2011-2023 Yann Collet
-License: BSD-2-clause
 
 Files: deps/jemalloc/*
 Copyright: 2002-2024 Jason Evans <jasone@canonware.com>

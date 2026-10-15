@@ -4,7 +4,7 @@
 %global debug_package %{nil}
 
 Name:           percona-valkey-bundle
-Version:        9.1.2
+Version:        8.0.11
 Release:        1%{?dist}
 Summary:        Percona Valkey server bundled with all supported modules
 
@@ -18,14 +18,12 @@ Source0:        percona-valkey-bundle-%{version}.tar.gz
 
 # This is a meta-package: it ships no binaries of its own. Installing it pulls
 # in the Percona Valkey server together with every supported module, so the
-# whole stack is present with a single install. Versions track the curated
-# bundle set (see valkey-io/valkey-bundle versions.json for 9.1):
-#   server 9.1.2, json 1.0.2, bloom 1.0.1, search 1.2.0, ldap 1.1.1.
-Requires:       percona-valkey%{?_isa} >= 9.1.2
+# whole stack is present with a single install. For 8.0 the set is
+#   server 8.0.11, json 1.0.2, bloom 1.0.1.
+# valkey-search is left out: every release needs Valkey 8.1.1 or later.
+Requires:       percona-valkey%{?_isa} >= 8.0.11
 Requires:       percona-valkey-json%{?_isa} >= 1.0.2
 Requires:       percona-valkey-bloom%{?_isa} >= 1.0.1
-Requires:       percona-valkey-search%{?_isa} >= 1.2.0
-Requires:       percona-valkey-ldap%{?_isa} >= 1.1.1
 
 %description
 percona-valkey-bundle is a meta-package that installs the Percona Valkey server
@@ -33,8 +31,6 @@ together with all supported modules in one step:
 
   * percona-valkey-json    (JSON.*  — native JSON data type)
   * percona-valkey-bloom   (BF.*    — Bloom filters)
-  * percona-valkey-search  (FT.*    — vector / full-text search)
-  * percona-valkey-ldap    (LDAP authentication)
 
 It contains no files of its own; it only declares dependencies. The modules are
 installed into the Valkey module directory but are not loaded automatically;
@@ -54,6 +50,10 @@ enable them with 'loadmodule' in valkey.conf or 'MODULE LOAD' at runtime.
 %doc README.md
 
 %changelog
+* Thu Oct 15 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 8.0.11-1
+- Bundle for Percona Valkey 8.0.11: server, json and bloom only; no
+  valkey-search or valkey-ldap build for 8.0
+
 * Tue Sep 01 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 9.1.2-1
 - Release 9.1.2
 
