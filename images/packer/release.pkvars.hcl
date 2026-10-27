@@ -1,4 +1,4 @@
-valkey_version = "9.1.1"
+valkey_version = "9.1.3"
 repo_channel   = "release"
 build_region   = "us-east-1"
 

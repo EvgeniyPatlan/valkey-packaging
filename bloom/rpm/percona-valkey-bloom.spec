@@ -7,7 +7,7 @@
 
 Name:           percona-valkey-bloom
 Version:        1.0.1
-Release:        2%{?dist}
+Release:        4%{?dist}
 Summary:        Bloom filter module for Percona Valkey
 
 License:        BSD-3-Clause
@@ -64,6 +64,9 @@ sh gen-module-sbom.sh %{name} %{version} %{buildroot}%{_datadir}/%{name}/sbom .
 %{_datadir}/%{name}/
 
 %changelog
+* Tue Oct 27 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 1.0.1-4
+- Rebuild against Percona Valkey 9.1.3
+
 * Tue Sep 01 2026 Evgeniy Patlan <evgeniy.patlan@percona.com> - 1.0.1-2
 - Rebuild against Percona Valkey 9.1.2
 

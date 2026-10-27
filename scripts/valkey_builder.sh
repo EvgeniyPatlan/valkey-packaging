@@ -10,15 +10,15 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 readonly PRODUCT="valkey"
 readonly PACKAGE_NAME="percona-valkey"
-readonly DEFAULT_VERSION="9.1.2"
+readonly DEFAULT_VERSION="9.1.3"
 readonly DEFAULT_RELEASE="1"
-readonly DEFAULT_BRANCH="9.1.2"
+readonly DEFAULT_BRANCH="9.1.3"
 readonly DEFAULT_REPO="https://github.com/valkey-io/valkey.git"
 
 # valkey-json module packaging (separate upstream source + version)
 readonly JSON_PACKAGE_NAME="percona-valkey-json"
 readonly DEFAULT_JSON_REPO="https://github.com/valkey-io/valkey-json.git"
-readonly DEFAULT_JSON_VERSION="1.0.2"
+readonly DEFAULT_JSON_VERSION="1.0.3"
 # RapidJSON is vendored into the source tarball so the module builds offline
 # (upstream CMake otherwise FetchContent-clones it from GitHub at build time).
 readonly RAPIDJSON_REPO="https://github.com/Tencent/rapidjson.git"
@@ -33,13 +33,13 @@ readonly DEFAULT_BLOOM_VERSION="1.0.1"
 # from source at package-build time; separate upstream source + version)
 readonly SEARCH_PACKAGE_NAME="percona-valkey-search"
 readonly DEFAULT_SEARCH_REPO="https://github.com/valkey-io/valkey-search.git"
-readonly DEFAULT_SEARCH_VERSION="1.2.0"
+readonly DEFAULT_SEARCH_VERSION="1.2.1"
 
 # valkey-bundle meta-package: depends on the server + every module, ships no
 # payload of its own. No upstream source to compile — the "source" is a small
 # tarball (README + LICENSE) assembled from this repo's bundle/ dir.
 readonly BUNDLE_PACKAGE_NAME="percona-valkey-bundle"
-readonly DEFAULT_BUNDLE_VERSION="9.1.2"
+readonly DEFAULT_BUNDLE_VERSION="9.1.3"
 
 # valkey-admin packaging (Node.js administration server; separate upstream
 # source + version). Unlike the module packages above this is not a Valkey
@@ -1196,9 +1196,11 @@ build_json_srpm() {
     mkdir -vp json_rpmbuild/{SOURCES,SPECS,BUILD,SRPMS,RPMS}
 
     cp -av "${BUILDER_SCRIPT_DIR}/../json/rpm/${JSON_PACKAGE_NAME}.spec" json_rpmbuild/SPECS/
-    # Spec patches are kept in json/debian/patches (single source of truth, shared
-    # with the DEB quilt series); copy them next to the tarball for rpmbuild.
-    cp -av "${BUILDER_SCRIPT_DIR}/../json/debian/patches/"*.patch json_rpmbuild/SOURCES/
+    # Spec patches, if any, are kept in json/debian/patches (single source of
+    # truth, shared with the DEB quilt series); copy them next to the tarball.
+    if compgen -G "${BUILDER_SCRIPT_DIR}/../json/debian/patches/*.patch" >/dev/null; then
+        cp -av "${BUILDER_SCRIPT_DIR}/../json/debian/patches/"*.patch json_rpmbuild/SOURCES/
+    fi
     mv -fv "$tarfile" json_rpmbuild/SOURCES/
 
     # Allow --json_version to flow through to the package version.
@@ -1385,7 +1387,7 @@ build_json_source_deb() {
     cp "$tarfile" "${name}_${ver}.orig.tar.gz"
     tar xf "$tarfile"
 
-    # debian/ (including patches/) comes from this repo's json/ tree.
+    # debian/ comes from this repo's json/ tree.
     cp -r "${BUILDER_SCRIPT_DIR}/../json/debian" "${name}-${ver}/debian"
     chmod +x "${name}-${ver}/debian/rules"
 
