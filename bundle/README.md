@@ -22,7 +22,7 @@ and recommends:
 | `percona-valkey-admin-server` | the web administration interface, on `127.0.0.1:8080` |
 
 Curated versions for 9.1 (from `valkey-io/valkey-bundle` `versions.json`):
-server 9.1.2, json 1.0.2, bloom 1.0.1, search 1.2.0, ldap 1.1.1.
+server 9.1.3, json 1.0.3, bloom 1.0.1, search 1.2.1, ldap 1.1.1.
 Admin 1.2.0 is a Percona addition; upstream's bundle ships no admin interface.
 
 ### Why admin is recommended and not required
